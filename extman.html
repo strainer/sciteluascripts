@@ -1,0 +1,803 @@
+<!DOCTYPE html  PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "DTD/xhtml1-strict.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+<title>extman.lua</title>
+<meta name="GENERATOR" content="SciTE - www.Scintilla.org" />
+<style type="text/css">
+.S0 {
+	color: #FF7F7F;
+	background: #000017;
+}
+.S2 {
+	font-family: 'DejaVu Sans Mono';
+	color: #A7A0DF;
+	background: #000017;
+	font-size: 9pt;
+}
+.S4 {
+	color: #AAAAFF;
+	background: #000017;
+}
+.S6 {
+	color: #DD99EE;
+	background: #000017;
+}
+.S7 {
+	color: #CC99DD;
+	background: #000017;
+}
+.S10 {
+	color: #8883F7;
+	background: #000017;
+}
+span {
+	font-family: 'DejaVu Sans Mono';
+	color: #A7A0DF;
+	background: #000017;
+	font-size: 9pt;
+}
+</style>
+</head>
+<body bgcolor="#000017">
+<span><span class="S2">-- Extman is a Lua script manager for SciTE. It enables multiple scripts to capture standard events</span><br />
+<span class="S2">-- without interfering with each other. For instance, scite_OnDoubleClick() will register handlers</span><br />
+<span class="S2">-- for scripts that need to know when a double-click event has happened. (To know whether it</span><br />
+<span class="S2">-- was in the output or editor pane, just test editor.Focus). &nbsp;It provides a useful function scite_Command</span><br />
+<span class="S2">-- which allows you to define new commands without messing around with property files (see the</span><br />
+<span class="S2">-- examples in the scite_lua directory.)</span><br />
+<span class="S2">-- extman defines three new convenience handlers as well:</span><br />
+<span class="S2">--scite_OnWord (called when user has entered a word)</span><br />
+<span class="S2">--scite_OnEditorLine (called when a line is entered into the editor)</span><br />
+<span class="S2">--scite_OnOutputLine (called when a line is entered into the output pane)</span><br />
+<br />
+<span class="S2">-- this is an opportunity for you to make regular Lua packages available to SciTE</span><br />
+<span class="S2">--~ package.path = package.path..';C:\\lang\\lua\\lua\\?.lua'</span><br />
+<span class="S2">--~ package.cpath = package.cpath..';c:\\lang\\lua\\?.dll'</span><br />
+<span class="S2">-- useful function for getting a property, or a default if not present.</span><br />
+function<span class="S0"> </span>scite_GetProp<span class="S10">(</span>key<span class="S10">,</span>default<span class="S10">)</span><br />
+<span class="S0">&nbsp;&nbsp;</span>local<span class="S0"> </span>val<span class="S0"> </span><span class="S10">=</span><span class="S0"> </span>props<span class="S10">[</span>key<span class="S10">]</span><br />
+<span class="S0">&nbsp;&nbsp;</span>if<span class="S0"> </span>val<span class="S0"> </span>and<span class="S0"> </span>val<span class="S0"> </span><span class="S10">~=</span><span class="S0"> </span><span class="S7">''</span><span class="S0"> </span>then<span class="S0"> </span>return<span class="S0"> </span>val<br />
+<span class="S0">&nbsp;&nbsp;</span>else<span class="S0"> </span>return<span class="S0"> </span>default<span class="S0"> </span>end<br />
+end<br />
+<br />
+function<span class="S0"> </span>scite_GetPropBool<span class="S10">(</span>key<span class="S10">,</span>default<span class="S10">)</span><br />
+<span class="S0">&nbsp;&nbsp;</span>local<span class="S0"> </span>res<span class="S0"> </span><span class="S10">=</span><span class="S0"> </span>scite_GetProp<span class="S10">(</span>key<span class="S10">,</span>default<span class="S10">)</span><br />
+<span class="S0">&nbsp;&nbsp;</span>if<span class="S0"> </span>not<span class="S0"> </span>res<span class="S0"> </span>or<span class="S0"> </span>res<span class="S0"> </span><span class="S10">==</span><span class="S0"> </span><span class="S7">'0'</span><span class="S0"> </span>or<span class="S0"> </span>res<span class="S0"> </span><span class="S10">==</span><span class="S0"> </span><span class="S7">'false'</span><span class="S0"> </span>then<span class="S0"> </span>return<span class="S0"> </span>false<br />
+<span class="S0">&nbsp;&nbsp;</span>else<span class="S0"> </span>return<span class="S0"> </span>true<br />
+<span class="S0">&nbsp;&nbsp;</span>end<br />
+end<br />
+<br />
+local<span class="S0"> </span>GTK<span class="S0"> </span><span class="S10">=</span><span class="S0"> </span>scite_GetProp<span class="S10">(</span><span class="S7">'PLAT_GTK'</span><span class="S10">)</span><br />
+<br />
+local<span class="S0"> </span>_MarginClick<span class="S10">,</span>_DoubleClick<span class="S10">,</span>_SavePointLeft<span class="S0"> </span><span class="S10">=</span><span class="S0"> </span><span class="S10">{},{},{}</span><br />
+local<span class="S0"> </span>_SavePointReached<span class="S10">,</span>_Open<span class="S10">,</span>_SwitchFile<span class="S0"> </span><span class="S10">=</span><span class="S0"> </span><span class="S10">{},{},{}</span><br />
+local<span class="S0"> </span>_BeforeSave<span class="S10">,</span>_Save<span class="S10">,</span>_Char<span class="S0"> </span><span class="S10">=</span><span class="S0"> </span><span class="S10">{},{},{}</span><br />
+local<span class="S0"> </span>_Word<span class="S10">,</span>_LineEd<span class="S10">,</span>_LineOut<span class="S0"> </span><span class="S10">=</span><span class="S0"> </span><span class="S10">{},{},{}</span><br />
+local<span class="S0"> </span>_OpenSwitch<span class="S0"> </span><span class="S10">=</span><span class="S0"> </span><span class="S10">{}</span><br />
+local<span class="S0"> </span>_UpdateUI<span class="S0"> </span><span class="S10">=</span><span class="S0"> </span><span class="S10">{}</span><br />
+<span class="S2">-- new with 1.74!</span><br />
+local<span class="S0"> </span>_Key<span class="S0"> </span><span class="S10">=</span><span class="S0"> </span><span class="S10">{}</span><br />
+local<span class="S0"> </span>_DwellStart<span class="S0"> </span><span class="S10">=</span><span class="S0"> </span><span class="S10">{}</span><br />
+local<span class="S0"> </span>_Close<span class="S0"> </span><span class="S10">=</span><span class="S0"> </span><span class="S10">{}</span><br />
+<span class="S2">-- new</span><br />
+local<span class="S0"> </span>_remove<span class="S0"> </span><span class="S10">=</span><span class="S0"> </span><span class="S10">{}</span><br />
+local<span class="S0"> </span>append<span class="S0"> </span><span class="S10">=</span><span class="S0"> </span>table.insert<br />
+local<span class="S0"> </span>find<span class="S0"> </span><span class="S10">=</span><span class="S0"> </span>string.find<br />
+local<span class="S0"> </span>size<span class="S0"> </span><span class="S10">=</span><span class="S0"> </span>table.getn<br />
+local<span class="S0"> </span>sub<span class="S0"> </span><span class="S10">=</span><span class="S0"> </span>string.sub<br />
+local<span class="S0"> </span>gsub<span class="S0"> </span><span class="S10">=</span><span class="S0"> </span>string.gsub<br />
+<br />
+<br />
+<span class="S2">-- file must be quoted if it contains spaces!</span><br />
+function<span class="S0"> </span>quote_if_needed<span class="S10">(</span>target<span class="S10">)</span><br />
+<span class="S0">&nbsp;&nbsp;</span>local<span class="S0"> </span>quote<span class="S0"> </span><span class="S10">=</span><span class="S0"> </span><span class="S7">'"'</span><br />
+<span class="S0">&nbsp;&nbsp;</span>if<span class="S0"> </span>find<span class="S10">(</span>target<span class="S10">,</span><span class="S7">'%s'</span><span class="S10">)</span><span class="S0"> </span>and<span class="S0"> </span>sub<span class="S10">(</span>target<span class="S10">,</span><span class="S4">1</span><span class="S10">,</span><span class="S4">1</span><span class="S10">)</span><span class="S0"> </span><span class="S10">~=</span><span class="S0"> </span>quote<span class="S0"> </span>then<br />
+<span class="S0">&nbsp;&nbsp;&nbsp;&nbsp;</span>target<span class="S0"> </span><span class="S10">=</span><span class="S0"> </span>quote<span class="S10">..</span>target<span class="S10">..</span>quote<br />
+<span class="S0">&nbsp;&nbsp;</span>end<br />
+<span class="S0">&nbsp;&nbsp;</span>return<span class="S0"> </span>target<br />
+end<br />
+<br />
+function<span class="S0"> </span>OnUserListSelection<span class="S10">(</span>tp<span class="S10">,</span>str<span class="S10">)</span><br />
+<span class="S0">&nbsp;&nbsp;</span>if<span class="S0"> </span>_UserListSelection<span class="S0"> </span>then<br />
+<span class="S0">&nbsp;&nbsp;&nbsp;</span>local<span class="S0"> </span>callback<span class="S0"> </span><span class="S10">=</span><span class="S0"> </span>_UserListSelection<br />
+<span class="S0">&nbsp;&nbsp;&nbsp;</span>_UserListSelection<span class="S0"> </span><span class="S10">=</span><span class="S0"> </span>nil<br />
+<span class="S0">&nbsp;&nbsp;&nbsp;</span>return<span class="S0"> </span>callback<span class="S10">(</span>str<span class="S10">)</span><br />
+<span class="S0">&nbsp;&nbsp;</span>else<span class="S0"> </span>return<span class="S0"> </span>false<span class="S0"> </span>end<br />
+end<br />
+<br />
+local<span class="S0"> </span>function<span class="S0"> </span>DispatchOne<span class="S10">(</span>handlers<span class="S10">,</span>arg<span class="S10">)</span><br />
+<span class="S0">&nbsp;&nbsp;</span>for<span class="S0"> </span>i<span class="S10">,</span>handler<span class="S0"> </span>in<span class="S0"> </span>pairs<span class="S10">(</span>handlers<span class="S10">)</span><span class="S0"> </span>do<br />
+<span class="S0">&nbsp;&nbsp;</span>local<span class="S0"> </span>fn<span class="S0"> </span><span class="S10">=</span><span class="S0"> </span>handler<br />
+<span class="S0">&nbsp;&nbsp;</span>if<span class="S0"> </span>_remove<span class="S10">[</span>fn<span class="S10">]</span><span class="S0"> </span>then<br />
+<span class="S0">&nbsp;&nbsp;&nbsp;&nbsp;</span>handlers<span class="S10">[</span>i<span class="S10">]</span><span class="S0"> </span><span class="S10">=</span><span class="S0"> </span>nil<br />
+<span class="S0">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span>_remove<span class="S10">[</span>fn<span class="S10">]</span><span class="S0"> </span><span class="S10">=</span><span class="S0"> </span>nil<br />
+<span class="S0">&nbsp;&nbsp;</span>end<br />
+<span class="S0">&nbsp;&nbsp;</span>local<span class="S0"> </span>ret<span class="S0"> </span><span class="S10">=</span><span class="S0"> </span>fn<span class="S10">(</span>arg<span class="S10">)</span><br />
+<span class="S0">&nbsp;&nbsp;</span>if<span class="S0"> </span>ret<span class="S0"> </span>then<span class="S0"> </span>return<span class="S0"> </span>ret<span class="S0"> </span>end<br />
+<span class="S0">&nbsp;&nbsp;</span>end<br />
+<span class="S0">&nbsp;&nbsp;</span>return<span class="S0"> </span>false<br />
+end<br />
+<br />
+local<span class="S0"> </span>function<span class="S0"> </span>Dispatch4<span class="S10">(</span>handlers<span class="S10">,</span>arg1<span class="S10">,</span>arg2<span class="S10">,</span>arg3<span class="S10">,</span>arg4<span class="S10">)</span><br />
+<span class="S0">&nbsp;&nbsp;</span>for<span class="S0"> </span>i<span class="S10">,</span>handler<span class="S0"> </span>in<span class="S0"> </span>pairs<span class="S10">(</span>handlers<span class="S10">)</span><span class="S0"> </span>do<br />
+<span class="S0">&nbsp;&nbsp;&nbsp;&nbsp;</span>local<span class="S0"> </span>fn<span class="S0"> </span><span class="S10">=</span><span class="S0"> </span>handler<br />
+<span class="S0">&nbsp;&nbsp;&nbsp;&nbsp;</span>if<span class="S0"> </span>_remove<span class="S10">[</span>fn<span class="S10">]</span><span class="S0"> </span>then<br />
+<span class="S0">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span>handlers<span class="S10">[</span>i<span class="S10">]</span><span class="S0"> </span><span class="S10">=</span><span class="S0"> </span>nil<br />
+<span class="S0">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span>_remove<span class="S10">[</span>fn<span class="S10">]</span><span class="S0"> </span><span class="S10">=</span><span class="S0"> </span>nil<br />
+<span class="S0">&nbsp;&nbsp;&nbsp;&nbsp;</span>end<br />
+<span class="S0">&nbsp;&nbsp;&nbsp;&nbsp;</span>local<span class="S0"> </span>ret<span class="S0"> </span><span class="S10">=</span><span class="S0"> </span>fn<span class="S10">(</span>arg1<span class="S10">,</span>arg2<span class="S10">,</span>arg3<span class="S10">,</span>arg4<span class="S10">)</span><br />
+<span class="S0">&nbsp;&nbsp;&nbsp;&nbsp;</span>if<span class="S0"> </span>ret<span class="S0"> </span>then<span class="S0"> </span>return<span class="S0"> </span>ret<span class="S0"> </span>end<br />
+<span class="S0">&nbsp;&nbsp;</span>end<br />
+<span class="S0">&nbsp;&nbsp;</span>return<span class="S0"> </span>false<br />
+end<br />
+<br />
+<span class="S2">-- these are the standard SciTE Lua callbacks &nbsp;- we use them to call installed extman handlers!</span><br />
+function<span class="S0"> </span>OnMarginClick<span class="S10">()</span><br />
+<span class="S0">&nbsp;&nbsp;</span>return<span class="S0"> </span>DispatchOne<span class="S10">(</span>_MarginClick<span class="S10">)</span><br />
+end<br />
+<br />
+function<span class="S0"> </span>OnDoubleClick<span class="S10">()</span><br />
+<span class="S0">&nbsp;&nbsp;</span>return<span class="S0"> </span>DispatchOne<span class="S10">(</span>_DoubleClick<span class="S10">)</span><br />
+end<br />
+<br />
+function<span class="S0"> </span>OnSavePointLeft<span class="S10">()</span><br />
+<span class="S0">&nbsp;&nbsp;</span>return<span class="S0"> </span>DispatchOne<span class="S10">(</span>_SavePointLeft<span class="S10">)</span><br />
+end<br />
+<br />
+function<span class="S0"> </span>OnSavePointReached<span class="S10">()</span><br />
+<span class="S0">&nbsp;&nbsp;</span>return<span class="S0"> </span>DispatchOne<span class="S10">(</span>_SavePointReached<span class="S10">)</span><br />
+end<br />
+<br />
+function<span class="S0"> </span>OnChar<span class="S10">(</span>ch<span class="S10">)</span><br />
+<span class="S0">&nbsp;&nbsp;</span>return<span class="S0"> </span>DispatchOne<span class="S10">(</span>_Char<span class="S10">,</span>ch<span class="S10">)</span><br />
+end<br />
+<br />
+function<span class="S0"> </span>OnSave<span class="S10">(</span>file<span class="S10">)</span><br />
+<span class="S0">&nbsp;&nbsp;</span>return<span class="S0"> </span>DispatchOne<span class="S10">(</span>_Save<span class="S10">,</span>file<span class="S10">)</span><br />
+end<br />
+<br />
+function<span class="S0"> </span>OnBeforeSave<span class="S10">(</span>file<span class="S10">)</span><br />
+<span class="S0">&nbsp;&nbsp;</span>return<span class="S0"> </span>DispatchOne<span class="S10">(</span>_BeforeSave<span class="S10">,</span>file<span class="S10">)</span><br />
+end<br />
+<br />
+function<span class="S0"> </span>OnSwitchFile<span class="S10">(</span>file<span class="S10">)</span><br />
+<span class="S0">&nbsp;&nbsp;</span>return<span class="S0"> </span>DispatchOne<span class="S10">(</span>_SwitchFile<span class="S10">,</span>file<span class="S10">)</span><br />
+end<br />
+<br />
+function<span class="S0"> </span>OnOpen<span class="S10">(</span>file<span class="S10">)</span><br />
+<span class="S0">&nbsp;&nbsp;</span>return<span class="S0"> </span>DispatchOne<span class="S10">(</span>_Open<span class="S10">,</span>file<span class="S10">)</span><br />
+end<br />
+<br />
+function<span class="S0"> </span>OnUpdateUI<span class="S10">()</span><br />
+<span class="S0">&nbsp;&nbsp;</span>if<span class="S0"> </span>editor.Focus<span class="S0"> </span>then<br />
+<span class="S0">&nbsp;&nbsp;</span>return<span class="S0"> </span>DispatchOne<span class="S10">(</span>_UpdateUI<span class="S10">)</span><br />
+<span class="S0">&nbsp;&nbsp;</span>else<br />
+<span class="S0">&nbsp;&nbsp;</span>return<span class="S0"> </span>false<br />
+<span class="S0">&nbsp;&nbsp;</span>end<br />
+end<br />
+<br />
+function<span class="S0"> </span>OnKey<span class="S10">(</span>key<span class="S10">,</span>shift<span class="S10">,</span>ctrl<span class="S10">,</span>alt<span class="S10">)</span><br />
+<span class="S0">&nbsp;&nbsp;&nbsp;</span>return<span class="S0"> </span>Dispatch4<span class="S10">(</span>_Key<span class="S10">,</span>key<span class="S10">,</span>shift<span class="S10">,</span>ctrl<span class="S10">,</span>alt<span class="S10">)</span><br />
+<span class="S0">&nbsp;</span>end<br />
+<br />
+function<span class="S0"> </span>OnDwellStart<span class="S10">(</span>pos<span class="S10">,</span>s<span class="S10">)</span><br />
+<span class="S0">&nbsp;&nbsp;</span>return<span class="S0"> </span>Dispatch4<span class="S10">(</span>_DwellStart<span class="S10">,</span>pos<span class="S10">,</span>s<span class="S10">)</span><br />
+end<br />
+<br />
+function<span class="S0"> </span>OnClose<span class="S10">()</span><br />
+<span class="S0">&nbsp;&nbsp;</span>return<span class="S0"> </span>DispatchOne<span class="S10">(</span>_Close<span class="S10">)</span><br />
+end<br />
+<br />
+<span class="S2">-- may optionally ask that this handler be immediately</span><br />
+<span class="S2">-- removed after it's called</span><br />
+local<span class="S0"> </span>function<span class="S0"> </span>append_unique<span class="S10">(</span>tbl<span class="S10">,</span>fn<span class="S10">,</span>rem<span class="S10">)</span><br />
+<span class="S0">&nbsp;&nbsp;</span>local<span class="S0"> </span>once_only<br />
+<span class="S0">&nbsp;&nbsp;</span>if<span class="S0"> </span>type<span class="S10">(</span>fn<span class="S10">)</span><span class="S0"> </span><span class="S10">==</span><span class="S0"> </span><span class="S7">'string'</span><span class="S0"> </span>then<br />
+<span class="S0">&nbsp;&nbsp;&nbsp;</span>once_only<span class="S0"> </span><span class="S10">=</span><span class="S0"> </span>fn<span class="S0"> </span><span class="S10">==</span><span class="S0"> </span><span class="S7">'once'</span><br />
+<span class="S0">&nbsp;&nbsp;&nbsp;</span>fn<span class="S0"> </span><span class="S10">=</span><span class="S0"> </span>rem<br />
+<span class="S0">&nbsp;&nbsp;&nbsp;</span>rem<span class="S0"> </span><span class="S10">=</span><span class="S0"> </span>nil<br />
+<span class="S0">&nbsp;&nbsp;&nbsp;</span>if<span class="S0"> </span>once_only<span class="S0"> </span>then<br />
+<span class="S0">&nbsp;&nbsp;&nbsp;&nbsp;</span>_remove<span class="S10">[</span>fn<span class="S10">]</span><span class="S0"> </span><span class="S10">=</span><span class="S0"> </span>fn<br />
+<span class="S0">&nbsp;&nbsp;</span>end<br />
+<span class="S0">&nbsp;&nbsp;</span>else<br />
+<span class="S0">&nbsp;&nbsp;</span>_remove<span class="S10">[</span>fn<span class="S10">]</span><span class="S0"> </span><span class="S10">=</span><span class="S0"> </span>nil<br />
+<span class="S0">&nbsp;&nbsp;</span>end<br />
+<span class="S0">&nbsp;&nbsp;</span>local<span class="S0"> </span>idx<br />
+<span class="S0">&nbsp;&nbsp;</span>for<span class="S0"> </span>i<span class="S10">,</span>handler<span class="S0"> </span>in<span class="S0"> </span>pairs<span class="S10">(</span>tbl<span class="S10">)</span><span class="S0"> </span>do<br />
+<span class="S0">&nbsp;&nbsp;&nbsp;</span>if<span class="S0"> </span>handler<span class="S0"> </span><span class="S10">==</span><span class="S0"> </span>fn<span class="S0"> </span>then<span class="S0"> </span>idx<span class="S0"> </span><span class="S10">=</span><span class="S0"> </span>i<span class="S10">;</span><span class="S0"> </span>break<span class="S0"> </span>end<br />
+<span class="S0">&nbsp;&nbsp;</span>end<br />
+<span class="S0">&nbsp;&nbsp;</span>if<span class="S0"> </span>idx<span class="S0"> </span>then<br />
+<span class="S0">&nbsp;&nbsp;</span>if<span class="S0"> </span>rem<span class="S0"> </span>then<br />
+<span class="S0">&nbsp;&nbsp;&nbsp;&nbsp;</span>table.remove<span class="S10">(</span>tbl<span class="S10">,</span>idx<span class="S10">)</span><br />
+<span class="S0">&nbsp;&nbsp;</span>end<br />
+<span class="S0">&nbsp;&nbsp;</span>else<br />
+<span class="S0">&nbsp;&nbsp;</span>if<span class="S0"> </span>not<span class="S0"> </span>rem<span class="S0"> </span>then<br />
+<span class="S0">&nbsp;&nbsp;&nbsp;&nbsp;</span>append<span class="S10">(</span>tbl<span class="S10">,</span>fn<span class="S10">)</span><br />
+<span class="S0">&nbsp;&nbsp;</span>end<br />
+<span class="S0">&nbsp;&nbsp;</span>end<br />
+end<br />
+<br />
+<span class="S2">-- this is how you register your own handlers with extman</span><br />
+function<span class="S0"> </span>scite_OnMarginClick<span class="S10">(</span>fn<span class="S10">,</span>rem<span class="S10">)</span><br />
+<span class="S0">&nbsp;&nbsp;</span>append_unique<span class="S10">(</span>_MarginClick<span class="S10">,</span>fn<span class="S10">,</span>rem<span class="S10">)</span><br />
+end<br />
+<br />
+function<span class="S0"> </span>scite_OnDoubleClick<span class="S10">(</span>fn<span class="S10">,</span>rem<span class="S10">)</span><br />
+<span class="S0">&nbsp;&nbsp;</span>append_unique<span class="S10">(</span>_DoubleClick<span class="S10">,</span>fn<span class="S10">,</span>rem<span class="S10">)</span><br />
+end<br />
+<br />
+function<span class="S0"> </span>scite_OnSavePointLeft<span class="S10">(</span>fn<span class="S10">,</span>rem<span class="S10">)</span><br />
+<span class="S0">&nbsp;&nbsp;</span>append_unique<span class="S10">(</span>_SavePointLeft<span class="S10">,</span>fn<span class="S10">,</span>rem<span class="S10">)</span><br />
+end<br />
+<br />
+function<span class="S0"> </span>scite_OnSavePointReached<span class="S10">(</span>fn<span class="S10">,</span>rem<span class="S10">)</span><br />
+<span class="S0">&nbsp;&nbsp;</span>append_unique<span class="S10">(</span>_SavePointReached<span class="S10">,</span>fn<span class="S10">,</span>rem<span class="S10">)</span><br />
+end<br />
+<br />
+function<span class="S0"> </span>scite_OnOpen<span class="S10">(</span>fn<span class="S10">,</span>rem<span class="S10">)</span><br />
+<span class="S0">&nbsp;&nbsp;</span>append_unique<span class="S10">(</span>_Open<span class="S10">,</span>fn<span class="S10">,</span>rem<span class="S10">)</span><br />
+end<br />
+<br />
+function<span class="S0"> </span>scite_OnSwitchFile<span class="S10">(</span>fn<span class="S10">,</span>rem<span class="S10">)</span><br />
+<span class="S0">&nbsp;&nbsp;</span>append_unique<span class="S10">(</span>_SwitchFile<span class="S10">,</span>fn<span class="S10">,</span>rem<span class="S10">)</span><br />
+end<br />
+<br />
+function<span class="S0"> </span>scite_OnBeforeSave<span class="S10">(</span>fn<span class="S10">,</span>rem<span class="S10">)</span><br />
+<span class="S0">&nbsp;&nbsp;</span>append_unique<span class="S10">(</span>_BeforeSave<span class="S10">,</span>fn<span class="S10">,</span>rem<span class="S10">)</span><br />
+end<br />
+<br />
+function<span class="S0"> </span>scite_OnSave<span class="S10">(</span>fn<span class="S10">,</span>rem<span class="S10">)</span><br />
+<span class="S0">&nbsp;&nbsp;</span>append_unique<span class="S10">(</span>_Save<span class="S10">,</span>fn<span class="S10">,</span>rem<span class="S10">)</span><br />
+end<br />
+<br />
+function<span class="S0"> </span>scite_OnUpdateUI<span class="S10">(</span>fn<span class="S10">,</span>rem<span class="S10">)</span><br />
+<span class="S0">&nbsp;&nbsp;</span>append_unique<span class="S10">(</span>_UpdateUI<span class="S10">,</span>fn<span class="S10">,</span>rem<span class="S10">)</span><br />
+end<br />
+<br />
+function<span class="S0"> </span>scite_OnChar<span class="S10">(</span>fn<span class="S10">,</span>rem<span class="S10">)</span><br />
+<span class="S0">&nbsp;&nbsp;</span>append_unique<span class="S10">(</span>_Char<span class="S10">,</span>fn<span class="S10">,</span>rem<span class="S10">)</span><br />
+end<br />
+<br />
+function<span class="S0"> </span>scite_OnOpenSwitch<span class="S10">(</span>fn<span class="S10">,</span>rem<span class="S10">)</span><br />
+<span class="S0">&nbsp;&nbsp;</span>append_unique<span class="S10">(</span>_OpenSwitch<span class="S10">,</span>fn<span class="S10">,</span>rem<span class="S10">)</span><br />
+end<br />
+<br />
+function<span class="S0"> </span>scite_OnKey<span class="S10">(</span>fn<span class="S10">,</span>rem<span class="S10">)</span><br />
+<span class="S0">&nbsp;&nbsp;</span>append_unique<span class="S10">(</span>_Key<span class="S10">,</span>fn<span class="S10">,</span>rem<span class="S10">)</span><br />
+end<br />
+<br />
+function<span class="S0"> </span>scite_OnDwellStart<span class="S10">(</span>fn<span class="S10">,</span>rem<span class="S10">)</span><br />
+<span class="S0">&nbsp;&nbsp;</span>append_unique<span class="S10">(</span>_DwellStart<span class="S10">,</span>fn<span class="S10">,</span>rem<span class="S10">)</span><br />
+end<br />
+<br />
+function<span class="S0"> </span>scite_OnClose<span class="S10">(</span>fn<span class="S10">,</span>rem<span class="S10">)</span><br />
+<span class="S0">&nbsp;&nbsp;</span>append_unique<span class="S10">(</span>_Close<span class="S10">,</span>fn<span class="S10">,</span>rem<span class="S10">)</span><br />
+end<br />
+<br />
+local<span class="S0"> </span>function<span class="S0"> </span>buffer_switch<span class="S10">(</span>f<span class="S10">)</span><br />
+<span class="S2">--- OnOpen() is also called if we move to a new folder</span><br />
+<span class="S0">&nbsp;&nbsp;&nbsp;</span>if<span class="S0"> </span>not<span class="S0"> </span>find<span class="S10">(</span>f<span class="S10">,</span><span class="S7">'[\\/]$'</span><span class="S10">)</span><span class="S0"> </span>then<br />
+<span class="S0">&nbsp;&nbsp;&nbsp;&nbsp;</span>DispatchOne<span class="S10">(</span>_OpenSwitch<span class="S10">,</span>f<span class="S10">)</span><br />
+<span class="S0">&nbsp;&nbsp;&nbsp;</span>end<br />
+end<br />
+<br />
+scite_OnOpen<span class="S10">(</span>buffer_switch<span class="S10">)</span><br />
+scite_OnSwitchFile<span class="S10">(</span>buffer_switch<span class="S10">)</span><br />
+<br />
+local<span class="S0"> </span>next_user_id<span class="S0"> </span><span class="S10">=</span><span class="S0"> </span><span class="S4">13</span><span class="S0"> </span><span class="S2">-- arbitrary</span><br />
+<br />
+<span class="S2">-- the handler is always reset!</span><br />
+function<span class="S0"> </span>scite_UserListShow<span class="S10">(</span>list<span class="S10">,</span>start<span class="S10">,</span>fn<span class="S10">)</span><br />
+<span class="S0">&nbsp;&nbsp;</span>local<span class="S0"> </span>separators<span class="S0"> </span><span class="S10">=</span><span class="S0"> </span><span class="S10">{</span><span class="S7">' '</span><span class="S10">,</span><span class="S0"> </span><span class="S7">';'</span><span class="S10">,</span><span class="S0"> </span><span class="S7">'@'</span><span class="S10">,</span><span class="S0"> </span><span class="S7">'?'</span><span class="S10">,</span><span class="S0"> </span><span class="S7">'~'</span><span class="S10">,</span><span class="S0"> </span><span class="S7">':'</span><span class="S10">}</span><br />
+<span class="S0">&nbsp;&nbsp;</span>local<span class="S0"> </span>separator<br />
+<span class="S0">&nbsp;&nbsp;</span>local<span class="S0"> </span>s<span class="S0"> </span><span class="S10">=</span><span class="S0"> </span>table.concat<span class="S10">(</span>list<span class="S10">)</span><br />
+<span class="S0">&nbsp;&nbsp;</span>for<span class="S0"> </span>i<span class="S10">,</span><span class="S0"> </span>sep<span class="S0"> </span>in<span class="S0"> </span>ipairs<span class="S10">(</span>separators<span class="S10">)</span><span class="S0"> </span>do<br />
+<span class="S0">&nbsp;&nbsp;</span>if<span class="S0"> </span>not<span class="S0"> </span>string.find<span class="S10">(</span>s<span class="S10">,</span><span class="S0"> </span>sep<span class="S10">,</span><span class="S0"> </span><span class="S4">1</span><span class="S10">,</span><span class="S0"> </span>true<span class="S10">)</span><span class="S0"> </span>then<br />
+<span class="S0">&nbsp;&nbsp;&nbsp;&nbsp;</span>s<span class="S0"> </span><span class="S10">=</span><span class="S0"> </span>table.concat<span class="S10">(</span>list<span class="S10">,</span><span class="S0"> </span>sep<span class="S10">,</span><span class="S0"> </span>start<span class="S10">)</span><br />
+<span class="S0">&nbsp;&nbsp;&nbsp;&nbsp;</span>separator<span class="S0"> </span><span class="S10">=</span><span class="S0"> </span>sep<br />
+<span class="S0">&nbsp;&nbsp;&nbsp;&nbsp;</span>break<br />
+<span class="S0">&nbsp;&nbsp;</span>end<br />
+<span class="S0">&nbsp;&nbsp;</span>end<br />
+<span class="S0">&nbsp;&nbsp;</span><span class="S2">-- we could not find a good separator, set it arbitrarily</span><br />
+<span class="S0">&nbsp;&nbsp;</span>if<span class="S0"> </span>not<span class="S0"> </span>separator<span class="S0"> </span>then<br />
+<span class="S0">&nbsp;&nbsp;</span>separator<span class="S0"> </span><span class="S10">=</span><span class="S0"> </span><span class="S7">'@'</span><br />
+<span class="S0">&nbsp;&nbsp;</span>s<span class="S0"> </span><span class="S10">=</span><span class="S0"> </span>table.concat<span class="S10">(</span>list<span class="S10">,</span><span class="S0"> </span>separator<span class="S10">,</span><span class="S0"> </span>start<span class="S10">)</span><br />
+<span class="S0">&nbsp;&nbsp;</span>end<br />
+<span class="S0">&nbsp;&nbsp;</span>_UserListSelection<span class="S0"> </span><span class="S10">=</span><span class="S0"> </span>fn<br />
+<span class="S0">&nbsp;&nbsp;</span>local<span class="S0"> </span>pane<span class="S0"> </span><span class="S10">=</span><span class="S0"> </span>editor<br />
+<span class="S0">&nbsp;&nbsp;</span>if<span class="S0"> </span>not<span class="S0"> </span>pane.Focus<span class="S0"> </span>then<span class="S0"> </span>pane<span class="S0"> </span><span class="S10">=</span><span class="S0"> </span>output<span class="S0"> </span>end<br />
+<span class="S0">&nbsp;&nbsp;</span>pane.AutoCSeparator<span class="S0"> </span><span class="S10">=</span><span class="S0"> </span>string.byte<span class="S10">(</span>separator<span class="S10">)</span><br />
+<span class="S0">&nbsp;&nbsp;</span>pane<span class="S10">:</span>UserListShow<span class="S10">(</span>next_user_id<span class="S10">,</span>s<span class="S10">)</span><br />
+<span class="S0">&nbsp;&nbsp;</span>pane.AutoCSeparator<span class="S0"> </span><span class="S10">=</span><span class="S0"> </span>string.byte<span class="S10">(</span><span class="S7">' '</span><span class="S10">)</span><br />
+<span class="S0">&nbsp;&nbsp;</span>return<span class="S0"> </span>true<br />
+end<br />
+<br />
+<span class="S0">&nbsp;</span>local<span class="S0"> </span>word_start<span class="S10">,</span>in_word<span class="S10">,</span>current_word<br />
+<span class="S2">-- (Nicolas) this is in Ascii as SciTE always passes chars in this "encoding" to OnChar</span><br />
+local<span class="S0"> </span>wordchars<span class="S0"> </span><span class="S10">=</span><span class="S0"> </span><span class="S7">'[A-Za-zÀ-Ýà-ÿ]'</span><span class="S0"> &nbsp;</span><span class="S2">-- wuz %w</span><br />
+<br />
+local<span class="S0"> </span>function<span class="S0"> </span>on_word_char<span class="S10">(</span>s<span class="S10">)</span><br />
+<span class="S0">&nbsp;&nbsp;</span>if<span class="S0"> </span>not<span class="S0"> </span>in_word<span class="S0"> </span>then<br />
+<span class="S0">&nbsp;&nbsp;</span>if<span class="S0"> </span>find<span class="S10">(</span>s<span class="S10">,</span>wordchars<span class="S10">)</span><span class="S0"> </span>then<br />
+<span class="S0">&nbsp;&nbsp;&nbsp;&nbsp;</span><span class="S2">-- we have hit a word!</span><br />
+<span class="S0">&nbsp;&nbsp;&nbsp;&nbsp;</span>word_start<span class="S0"> </span><span class="S10">=</span><span class="S0"> </span>editor.CurrentPos<br />
+<span class="S0">&nbsp;&nbsp;&nbsp;&nbsp;</span>in_word<span class="S0"> </span><span class="S10">=</span><span class="S0"> </span>true<br />
+<span class="S0">&nbsp;&nbsp;&nbsp;&nbsp;</span>current_word<span class="S0"> </span><span class="S10">=</span><span class="S0"> </span>s<br />
+<span class="S0">&nbsp;&nbsp;</span>end<br />
+<span class="S0">&nbsp;&nbsp;</span>else<span class="S0"> </span><span class="S2">-- we're in a word</span><br />
+<span class="S0">&nbsp;&nbsp;</span><span class="S2">-- and it's another word character, so collect</span><br />
+<span class="S0">&nbsp;&nbsp;</span>if<span class="S0"> </span>find<span class="S10">(</span>s<span class="S10">,</span>wordchars<span class="S10">)</span><span class="S0"> </span>then<br />
+<span class="S0">&nbsp;&nbsp;&nbsp;&nbsp;</span>current_word<span class="S0"> </span><span class="S10">=</span><span class="S0"> </span>current_word<span class="S10">..</span>s<br />
+<span class="S0">&nbsp;&nbsp;</span>else<br />
+<span class="S0">&nbsp;&nbsp;&nbsp;&nbsp;</span><span class="S2">-- leaving a word; call the handler</span><br />
+<span class="S0">&nbsp;&nbsp;&nbsp;&nbsp;</span>local<span class="S0"> </span>word_end<span class="S0"> </span><span class="S10">=</span><span class="S0"> </span>editor.CurrentPos<br />
+<span class="S0">&nbsp;&nbsp;&nbsp;&nbsp;</span>DispatchOne<span class="S10">(</span>_Word<span class="S10">,</span><span class="S0"> </span><span class="S10">{</span>word<span class="S10">=</span>current_word<span class="S10">,</span><br />
+<span class="S0">&nbsp;&nbsp;&nbsp;&nbsp;</span>startp<span class="S10">=</span>word_start<span class="S10">,</span>endp<span class="S10">=</span>editor.CurrentPos<span class="S10">,</span><br />
+<span class="S0">&nbsp;&nbsp;&nbsp;&nbsp;</span>ch<span class="S0"> </span><span class="S10">=</span><span class="S0"> </span>s<br />
+<span class="S0">&nbsp;&nbsp;&nbsp;&nbsp;</span><span class="S10">})</span><br />
+<span class="S0">&nbsp;&nbsp;&nbsp;&nbsp;</span>in_word<span class="S0"> </span><span class="S10">=</span><span class="S0"> </span>false<br />
+<span class="S0">&nbsp;&nbsp;</span>end<br />
+<span class="S0">&nbsp;&nbsp;</span>end<br />
+<span class="S0">&nbsp;&nbsp;</span><span class="S2">-- don't interfere with usual processing!</span><br />
+<span class="S0">&nbsp;&nbsp;</span>return<span class="S0"> </span>false<br />
+end<br />
+<br />
+function<span class="S0"> </span>scite_OnWord<span class="S10">(</span>fn<span class="S10">,</span>rem<span class="S10">)</span><br />
+<span class="S0">&nbsp;&nbsp;</span>append_unique<span class="S10">(</span>_Word<span class="S10">,</span>fn<span class="S10">,</span>rem<span class="S10">)</span><br />
+<span class="S0">&nbsp;&nbsp;</span>if<span class="S0"> </span>not<span class="S0"> </span>rem<span class="S0"> </span>then<br />
+<span class="S0">&nbsp;&nbsp;&nbsp;</span>scite_OnChar<span class="S10">(</span>on_word_char<span class="S10">)</span><br />
+<span class="S0">&nbsp;&nbsp;</span>else<br />
+<span class="S0">&nbsp;&nbsp;&nbsp;</span>scite_OnChar<span class="S10">(</span>on_word_char<span class="S10">,</span><span class="S7">'remove'</span><span class="S10">)</span><br />
+<span class="S0">&nbsp;&nbsp;</span>end<br />
+end<br />
+<br />
+local<span class="S0"> </span>last_pos<span class="S0"> </span><span class="S10">=</span><span class="S0"> </span><span class="S4">0</span><br />
+<br />
+function<span class="S0"> </span>get_line<span class="S10">(</span>pane<span class="S10">,</span>lineno<span class="S10">)</span><br />
+<span class="S0">&nbsp;&nbsp;</span>if<span class="S0"> </span>not<span class="S0"> </span>pane<span class="S0"> </span>then<span class="S0"> </span>pane<span class="S0"> </span><span class="S10">=</span><span class="S0"> </span>editor<span class="S0"> </span>end<br />
+<span class="S0">&nbsp;&nbsp;</span>if<span class="S0"> </span>not<span class="S0"> </span>lineno<span class="S0"> </span>then<br />
+<span class="S0">&nbsp;&nbsp;&nbsp;&nbsp;</span>local<span class="S0"> </span>line_pos<span class="S0"> </span><span class="S10">=</span><span class="S0"> </span>pane.CurrentPos<br />
+<span class="S0">&nbsp;&nbsp;&nbsp;&nbsp;</span>lineno<span class="S0"> </span><span class="S10">=</span><span class="S0"> </span>pane<span class="S10">:</span>LineFromPosition<span class="S10">(</span>line_pos<span class="S10">)</span><br />
+<span class="S0">&nbsp;&nbsp;</span>end<br />
+<span class="S0">&nbsp;&nbsp;</span><span class="S2">-- strip linefeeds (Windows is a special case as usual!)</span><br />
+<span class="S0">&nbsp;&nbsp;</span>local<span class="S0"> </span>endl<span class="S0"> </span><span class="S10">=</span><span class="S0"> </span><span class="S4">2</span><br />
+<span class="S0">&nbsp;&nbsp;</span>if<span class="S0"> </span>pane.EOLMode<span class="S0"> </span><span class="S10">==</span><span class="S0"> </span><span class="S4">0</span><span class="S0"> </span>then<span class="S0"> </span>endl<span class="S0"> </span><span class="S10">=</span><span class="S0"> </span><span class="S4">3</span><span class="S0"> </span>end<br />
+<span class="S0">&nbsp;&nbsp;</span>local<span class="S0"> </span>line<span class="S0"> </span><span class="S10">=</span><span class="S0"> </span>pane<span class="S10">:</span>GetLine<span class="S10">(</span>lineno<span class="S10">)</span><br />
+<span class="S0">&nbsp;&nbsp;</span>if<span class="S0"> </span>not<span class="S0"> </span>line<span class="S0"> </span>then<span class="S0"> </span>return<span class="S0"> </span>nil<span class="S0"> </span>end<br />
+<span class="S0">&nbsp;&nbsp;</span>return<span class="S0"> </span>string.sub<span class="S10">(</span>line<span class="S10">,</span><span class="S4">1</span><span class="S10">,-</span>endl<span class="S10">)</span><br />
+end<br />
+<br />
+<span class="S2">-- export this useful function...</span><br />
+scite_Line<span class="S0"> </span><span class="S10">=</span><span class="S0"> </span>get_line<br />
+<br />
+local<span class="S0"> </span>function<span class="S0"> </span>on_line_char<span class="S10">(</span>ch<span class="S10">,</span>was_output<span class="S10">)</span><br />
+<span class="S0">&nbsp;&nbsp;</span>if<span class="S0"> </span>ch<span class="S0"> </span><span class="S10">==</span><span class="S0"> </span><span class="S7">'\n'</span><span class="S0"> </span>then<br />
+<span class="S0">&nbsp;&nbsp;&nbsp;&nbsp;</span>local<span class="S0"> </span>in_editor<span class="S0"> </span><span class="S10">=</span><span class="S0"> </span>editor.Focus<br />
+<span class="S0">&nbsp;&nbsp;&nbsp;&nbsp;</span>if<span class="S0"> </span>in_editor<span class="S0"> </span>and<span class="S0"> </span>not<span class="S0"> </span>was_output<span class="S0"> </span>then<br />
+<span class="S0">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span>DispatchOne<span class="S10">(</span>_LineEd<span class="S10">,</span>get_line<span class="S10">(</span>editor<span class="S10">))</span><br />
+<span class="S0">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span>return<span class="S0"> </span>false<span class="S0"> </span><span class="S2">-- DO NOT interfere with any editor processing!</span><br />
+<span class="S0">&nbsp;&nbsp;&nbsp;&nbsp;</span>elseif<span class="S0"> </span>not<span class="S0"> </span>in_editor<span class="S0"> </span>and<span class="S0"> </span>was_output<span class="S0"> </span>then<br />
+<span class="S0">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span>DispatchOne<span class="S10">(</span>_LineOut<span class="S10">,</span>get_line<span class="S10">(</span>output<span class="S10">))</span><br />
+<span class="S0">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span>return<span class="S0"> </span>true<span class="S0"> </span><span class="S2">-- prevent SciTE from trying to evaluate the line</span><br />
+<span class="S0">&nbsp;&nbsp;&nbsp;&nbsp;</span>end<br />
+<span class="S0">&nbsp;&nbsp;</span>end<br />
+<span class="S0">&nbsp;&nbsp;</span>return<span class="S0"> </span>false<br />
+end<br />
+<br />
+local<span class="S0"> </span>function<span class="S0"> </span>on_line_editor_char<span class="S10">(</span>ch<span class="S10">)</span><br />
+<span class="S0">&nbsp;&nbsp;</span>return<span class="S0"> </span>on_line_char<span class="S10">(</span>ch<span class="S10">,</span>false<span class="S10">)</span><br />
+end<br />
+<br />
+local<span class="S0"> </span>function<span class="S0"> </span>on_line_output_char<span class="S10">(</span>ch<span class="S10">)</span><br />
+<span class="S0">&nbsp;&nbsp;</span>return<span class="S0"> </span>on_line_char<span class="S10">(</span>ch<span class="S10">,</span>true<span class="S10">)</span><br />
+end<br />
+<br />
+local<span class="S0"> </span>function<span class="S0"> </span>set_line_handler<span class="S10">(</span>fn<span class="S10">,</span>rem<span class="S10">,</span>handler<span class="S10">,</span>on_char<span class="S10">)</span><br />
+<span class="S0">&nbsp;&nbsp;</span>append_unique<span class="S10">(</span>handler<span class="S10">,</span>fn<span class="S10">,</span>rem<span class="S10">)</span><br />
+<span class="S0">&nbsp;&nbsp;</span>if<span class="S0"> </span>not<span class="S0"> </span>rem<span class="S0"> </span>then<br />
+<span class="S0">&nbsp;&nbsp;&nbsp;</span>scite_OnChar<span class="S10">(</span>on_char<span class="S10">)</span><br />
+<span class="S0">&nbsp;&nbsp;</span>else<br />
+<span class="S0">&nbsp;&nbsp;&nbsp;</span>scite_OnChar<span class="S10">(</span>on_char<span class="S10">,</span><span class="S7">'remove'</span><span class="S10">)</span><br />
+<span class="S0">&nbsp;&nbsp;</span>end<br />
+end<br />
+<br />
+function<span class="S0"> </span>scite_OnEditorLine<span class="S10">(</span>fn<span class="S10">,</span>rem<span class="S10">)</span><br />
+<span class="S0">&nbsp;&nbsp;</span>set_line_handler<span class="S10">(</span>fn<span class="S10">,</span>rem<span class="S10">,</span>_LineEd<span class="S10">,</span>on_line_editor_char<span class="S10">)</span><br />
+end<br />
+<br />
+function<span class="S0"> </span>scite_OnOutputLine<span class="S10">(</span>fn<span class="S10">,</span>rem<span class="S10">)</span><br />
+<span class="S0">&nbsp;&nbsp;</span>set_line_handler<span class="S10">(</span>fn<span class="S10">,</span>rem<span class="S10">,</span>_LineOut<span class="S10">,</span>on_line_output_char<span class="S10">)</span><br />
+end<br />
+<br />
+<br />
+local<span class="S0"> </span>path_pattern<br />
+local<span class="S0"> </span>tempfile<br />
+local<span class="S0"> </span>dirsep<br />
+<br />
+if<span class="S0"> </span>GTK<span class="S0"> </span>then<br />
+<span class="S0">&nbsp;&nbsp;</span>tempfile<span class="S0"> </span><span class="S10">=</span><span class="S0"> </span><span class="S7">'/tmp/.scite-temp-files'</span><br />
+<span class="S0">&nbsp;&nbsp;</span>path_pattern<span class="S0"> </span><span class="S10">=</span><span class="S0"> </span><span class="S7">'(.*)/[^%./]+%.%w+$'</span><br />
+<span class="S0">&nbsp;&nbsp;</span>dirsep<span class="S0"> </span><span class="S10">=</span><span class="S0"> </span><span class="S7">'/'</span><br />
+else<br />
+<span class="S0">&nbsp;&nbsp;</span>tempfile<span class="S0"> </span><span class="S10">=</span><span class="S0"> </span><span class="S7">'\\scite_temp1'</span><br />
+<span class="S0">&nbsp;&nbsp;</span>path_pattern<span class="S0"> </span><span class="S10">=</span><span class="S0"> </span><span class="S7">'(.*)\\[^%.\\]+%.%w+$'</span><br />
+<span class="S0">&nbsp;&nbsp;</span>dirsep<span class="S0"> </span><span class="S10">=</span><span class="S0"> </span><span class="S7">'\\'</span><br />
+end<br />
+<br />
+function<span class="S0"> </span>path_of<span class="S10">(</span>s<span class="S10">)</span><br />
+<span class="S0">&nbsp;&nbsp;</span>local<span class="S0"> </span>_<span class="S10">,</span>_<span class="S10">,</span>res<span class="S0"> </span><span class="S10">=</span><span class="S0"> </span>find<span class="S10">(</span>s<span class="S10">,</span>path_pattern<span class="S10">)</span><br />
+<span class="S0">&nbsp;&nbsp;</span>if<span class="S0"> </span>_<span class="S0"> </span>then<span class="S0"> </span>return<span class="S0"> </span>res<span class="S0"> </span>else<span class="S0"> </span>return<span class="S0"> </span>s<span class="S0"> </span>end<br />
+end<br />
+<br />
+local<span class="S0"> </span>extman_path<span class="S0"> </span><span class="S10">=</span><span class="S0"> </span>path_of<span class="S10">(</span>props<span class="S10">[</span><span class="S7">'ext.lua.startup.script'</span><span class="S10">])</span><br />
+local<span class="S0"> </span>lua_path<span class="S0"> </span><span class="S10">=</span><span class="S0"> </span>scite_GetProp<span class="S10">(</span><span class="S7">'ext.lua.directory'</span><span class="S10">,</span>extman_path<span class="S10">..</span>dirsep<span class="S10">..</span><span class="S7">'scite_lua'</span><span class="S10">)</span><br />
+<br />
+function<span class="S0"> </span>extman_Path<span class="S10">()</span><br />
+<span class="S0">&nbsp;&nbsp;</span>return<span class="S0"> </span>extman_path<br />
+end<br />
+<br />
+<br />
+<span class="S2">-- a general popen function that uses the spawner library if found; otherwise falls back</span><br />
+<span class="S2">-- on os.execute</span><br />
+function<span class="S0"> </span>scite_Popen<span class="S10">(</span>cmd<span class="S10">)</span><br />
+<span class="S0">&nbsp;&nbsp;</span>if<span class="S0"> </span>spawner<span class="S0"> </span>then<br />
+<span class="S0">&nbsp;&nbsp;&nbsp;&nbsp;</span>return<span class="S0"> </span>spawner.popen<span class="S10">(</span>cmd<span class="S10">)</span><br />
+<span class="S0">&nbsp;&nbsp;</span>else<br />
+<span class="S0">&nbsp;&nbsp;&nbsp;&nbsp;</span>cmd<span class="S0"> </span><span class="S10">=</span><span class="S0"> </span>cmd<span class="S10">..</span><span class="S7">' &gt; '</span><span class="S10">..</span>tempfile<br />
+<span class="S0">&nbsp;&nbsp;&nbsp;&nbsp;</span>if<span class="S0"> &nbsp;</span>GTK<span class="S0"> </span>then<span class="S0"> </span><span class="S2">-- io.popen is dodgy; don't use it!</span><br />
+<span class="S0">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span>os.execute<span class="S10">(</span>cmd<span class="S10">)</span><br />
+<span class="S0">&nbsp;&nbsp;&nbsp;&nbsp;</span>else<br />
+<span class="S0">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span>if<span class="S0"> </span>Execute<span class="S0"> </span>then<span class="S0"> </span><span class="S2">-- scite_other was found!</span><br />
+<span class="S0">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span>Execute<span class="S10">(</span>cmd<span class="S10">)</span><br />
+<span class="S0">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span>else<br />
+<span class="S0">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span>os.execute<span class="S10">(</span>cmd<span class="S10">)</span><br />
+<span class="S0">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span>end<br />
+<span class="S0">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span>end<br />
+<span class="S0">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span>return<span class="S0"> </span>io.open<span class="S10">(</span>tempfile<span class="S10">)</span><br />
+<span class="S0">&nbsp;&nbsp;</span>end<br />
+end<br />
+<br />
+function<span class="S0"> </span>dirmask<span class="S10">(</span>mask<span class="S10">,</span>isdir<span class="S10">)</span><br />
+<span class="S0">&nbsp;&nbsp;</span>local<span class="S0"> </span>attrib<span class="S0"> </span><span class="S10">=</span><span class="S0"> </span><span class="S7">''</span><br />
+<span class="S0">&nbsp;&nbsp;</span>if<span class="S0"> </span>isdir<span class="S0"> </span>then<br />
+<span class="S0">&nbsp;&nbsp;&nbsp;&nbsp;</span>if<span class="S0"> </span>not<span class="S0"> </span>GTK<span class="S0"> </span>then<br />
+<span class="S0">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span>attrib<span class="S0"> </span><span class="S10">=</span><span class="S0"> </span><span class="S7">' /A:D '</span><br />
+<span class="S0">&nbsp;&nbsp;&nbsp;&nbsp;</span>else<br />
+<span class="S0">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span>attrib<span class="S0"> </span><span class="S10">=</span><span class="S0"> </span><span class="S7">' -F '</span><br />
+<span class="S0">&nbsp;&nbsp;&nbsp;&nbsp;</span>end<br />
+<span class="S0">&nbsp;&nbsp;</span>end<br />
+<span class="S0">&nbsp;&nbsp;</span>if<span class="S0"> </span>not<span class="S0"> </span>GTK<span class="S0"> </span>then<br />
+<span class="S0">&nbsp;&nbsp;&nbsp;&nbsp;</span>mask<span class="S0"> </span><span class="S10">=</span><span class="S0"> </span>gsub<span class="S10">(</span>mask<span class="S10">,</span><span class="S7">'/'</span><span class="S10">,</span><span class="S7">'\\'</span><span class="S10">)</span><br />
+<span class="S0">&nbsp;&nbsp;&nbsp;&nbsp;</span>return<span class="S0"> </span><span class="S7">'dir /b '</span><span class="S10">..</span>attrib<span class="S10">..</span>quote_if_needed<span class="S10">(</span>mask<span class="S10">)</span><br />
+<span class="S0">&nbsp;&nbsp;</span>else<br />
+<span class="S0">&nbsp;&nbsp;&nbsp;&nbsp;</span>return<span class="S0"> </span><span class="S7">'ls -1 '</span><span class="S10">..</span>attrib<span class="S10">..</span>quote_if_needed<span class="S10">(</span>mask<span class="S10">)</span><br />
+<span class="S0">&nbsp;&nbsp;</span>end<br />
+end<br />
+<br />
+<span class="S2">-- grab all files matching @mask, which is assumed to be a path with a wildcard.</span><br />
+function<span class="S0"> </span>scite_Files<span class="S10">(</span>mask<span class="S10">)</span><br />
+<span class="S0">&nbsp;&nbsp;</span>local<span class="S0"> </span>f<span class="S10">,</span>path<span class="S10">,</span>cmd<span class="S10">,</span>_<br />
+<span class="S0">&nbsp;&nbsp;</span>if<span class="S0"> </span>not<span class="S0"> </span>GTK<span class="S0"> </span>then<br />
+<span class="S0">&nbsp;&nbsp;&nbsp;&nbsp;</span>cmd<span class="S0"> </span><span class="S10">=</span><span class="S0"> </span>dirmask<span class="S10">(</span>mask<span class="S10">)</span><br />
+<span class="S0">&nbsp;&nbsp;&nbsp;&nbsp;</span>path<span class="S0"> </span><span class="S10">=</span><span class="S0"> </span>mask<span class="S10">:</span>match<span class="S10">(</span><span class="S7">'(.*\\)'</span><span class="S10">)</span><span class="S0"> &nbsp;</span>or<span class="S0"> </span><span class="S7">'.\\'</span><br />
+<span class="S0">&nbsp;&nbsp;</span>else<br />
+<span class="S0">&nbsp;&nbsp;&nbsp;&nbsp;</span>cmd<span class="S0"> </span><span class="S10">=</span><span class="S0"> </span><span class="S7">'ls -1 '</span><span class="S10">..</span>mask<br />
+<span class="S0">&nbsp;&nbsp;&nbsp;&nbsp;</span>path<span class="S0"> </span><span class="S10">=</span><span class="S0"> </span><span class="S7">''</span><br />
+<span class="S0">&nbsp;&nbsp;</span>end<br />
+<span class="S0">&nbsp;&nbsp;</span>f<span class="S0"> </span><span class="S10">=</span><span class="S0"> </span>scite_Popen<span class="S10">(</span>cmd<span class="S10">)</span><br />
+<span class="S0">&nbsp;&nbsp;</span>local<span class="S0"> </span>files<span class="S0"> </span><span class="S10">=</span><span class="S0"> </span><span class="S10">{}</span><br />
+<span class="S0">&nbsp;&nbsp;</span>if<span class="S0"> </span>not<span class="S0"> </span>f<span class="S0"> </span>then<span class="S0"> </span>return<span class="S0"> </span>files<span class="S0"> </span>end<br />
+<span class="S0">&nbsp;&nbsp;</span>for<span class="S0"> </span>line<span class="S0"> </span>in<span class="S0"> </span>f<span class="S10">:</span>lines<span class="S10">()</span><span class="S0"> </span>do<br />
+<span class="S0">&nbsp;&nbsp;&nbsp;&nbsp;</span><span class="S2">-- print(path..line)</span><br />
+<span class="S0">&nbsp;&nbsp;&nbsp;&nbsp;</span>append<span class="S10">(</span>files<span class="S10">,</span>path<span class="S10">..</span>line<span class="S10">)</span><br />
+<span class="S0">&nbsp;&nbsp;</span>end<br />
+<span class="S0">&nbsp;&nbsp;</span>f<span class="S10">:</span>close<span class="S10">()</span><br />
+<span class="S0">&nbsp;&nbsp;</span>return<span class="S0"> </span>files<br />
+end<br />
+<br />
+<span class="S2">-- grab all directories in @path, excluding anything that matches @exclude_path</span><br />
+<span class="S2">-- As a special exception, will also any directory called 'examples' ;)</span><br />
+function<span class="S0"> </span>scite_Directories<span class="S10">(</span>path<span class="S10">,</span>exclude_pat<span class="S10">)</span><br />
+<span class="S0">&nbsp;&nbsp;</span>local<span class="S0"> </span>cmd<br />
+<span class="S0">&nbsp;&nbsp;</span><span class="S2">--print(path)</span><br />
+<span class="S0">&nbsp;&nbsp;</span>if<span class="S0"> </span>not<span class="S0"> </span>GTK<span class="S0"> </span>then<br />
+<span class="S0">&nbsp;&nbsp;&nbsp;&nbsp;</span>cmd<span class="S0"> </span><span class="S10">=</span><span class="S0"> </span>dirmask<span class="S10">(</span>path<span class="S10">..</span><span class="S7">'\\*.'</span><span class="S10">,</span>true<span class="S10">)</span><br />
+<span class="S0">&nbsp;&nbsp;</span>else<br />
+<span class="S0">&nbsp;&nbsp;&nbsp;&nbsp;</span>cmd<span class="S0"> </span><span class="S10">=</span><span class="S0"> </span>dirmask<span class="S10">(</span>path<span class="S10">,</span>true<span class="S10">)</span><br />
+<span class="S0">&nbsp;&nbsp;</span>end<br />
+<span class="S0">&nbsp;&nbsp;</span>path<span class="S0"> </span><span class="S10">=</span><span class="S0"> </span>path<span class="S10">..</span>dirsep<br />
+<span class="S0">&nbsp;&nbsp;</span>local<span class="S0"> </span>f<span class="S0"> </span><span class="S10">=</span><span class="S0"> </span>scite_Popen<span class="S10">(</span>cmd<span class="S10">)</span><br />
+<span class="S0">&nbsp;&nbsp;</span>local<span class="S0"> </span>files<span class="S0"> </span><span class="S10">=</span><span class="S0"> </span><span class="S10">{}</span><br />
+<span class="S0">&nbsp;&nbsp;</span>if<span class="S0"> </span>not<span class="S0"> </span>f<span class="S0"> </span>then<span class="S0"> </span>return<span class="S0"> </span>files<span class="S0"> </span>end<br />
+<span class="S0">&nbsp;&nbsp;</span>for<span class="S0"> </span>line<span class="S0"> </span>in<span class="S0"> </span>f<span class="S10">:</span>lines<span class="S10">()</span><span class="S0"> </span>do<br />
+<span class="S2">-- &nbsp;&nbsp;&nbsp;print(line)</span><br />
+<span class="S0">&nbsp;&nbsp;&nbsp;&nbsp;</span>if<span class="S0"> </span>GTK<span class="S0"> </span>then<br />
+<span class="S0">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span>if<span class="S0"> </span>line<span class="S10">:</span>sub<span class="S10">(-</span><span class="S4">1</span><span class="S10">,-</span><span class="S4">1</span><span class="S10">)</span><span class="S0"> </span><span class="S10">==</span><span class="S0"> </span>dirsep<span class="S0"> </span>then<br />
+<span class="S0">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span>line<span class="S0"> </span><span class="S10">=</span><span class="S0"> </span>line<span class="S10">:</span>sub<span class="S10">(</span><span class="S4">1</span><span class="S10">,-</span><span class="S4">2</span><span class="S10">)</span><br />
+<span class="S0">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span>else<br />
+<span class="S0">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span>line<span class="S0"> </span><span class="S10">=</span><span class="S0"> </span>nil<br />
+<span class="S0">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span>end<br />
+<span class="S0">&nbsp;&nbsp;&nbsp;&nbsp;</span>end<br />
+<span class="S0">&nbsp;&nbsp;&nbsp;&nbsp;</span>if<span class="S0"> </span>line<span class="S0"> </span>and<span class="S0"> </span>not<span class="S0"> </span>line<span class="S10">:</span>find<span class="S10">(</span>exclude_pat<span class="S10">)</span><span class="S0"> </span>and<span class="S0"> </span>line<span class="S0"> </span><span class="S10">~=</span><span class="S0"> </span><span class="S7">'examples'</span><span class="S0"> </span>then<br />
+<span class="S0">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span>append<span class="S10">(</span>files<span class="S10">,</span>path<span class="S10">..</span>line<span class="S10">)</span><br />
+<span class="S0">&nbsp;&nbsp;&nbsp;&nbsp;</span>end<br />
+<span class="S0">&nbsp;&nbsp;</span>end<br />
+<span class="S0">&nbsp;&nbsp;</span>f<span class="S10">:</span>close<span class="S10">()</span><br />
+<span class="S0">&nbsp;&nbsp;</span>return<span class="S0"> </span>files<br />
+end<br />
+<br />
+function<span class="S0"> </span>scite_FileExists<span class="S10">(</span>f<span class="S10">)</span><br />
+<span class="S0">&nbsp;&nbsp;</span>local<span class="S0"> </span>f<span class="S0"> </span><span class="S10">=</span><span class="S0"> </span>io.open<span class="S10">(</span>f<span class="S10">)</span><br />
+<span class="S0">&nbsp;&nbsp;</span>if<span class="S0"> </span>not<span class="S0"> </span>f<span class="S0"> </span>then<span class="S0"> </span>return<span class="S0"> </span>false<br />
+<span class="S0">&nbsp;&nbsp;</span>else<br />
+<span class="S0">&nbsp;&nbsp;</span>f<span class="S10">:</span>close<span class="S10">()</span><br />
+<span class="S0">&nbsp;&nbsp;</span>return<span class="S0"> </span>true<br />
+<span class="S0">&nbsp;&nbsp;</span>end<br />
+end<br />
+<br />
+function<span class="S0"> </span>scite_CurrentFile<span class="S10">()</span><br />
+<span class="S0">&nbsp;&nbsp;</span>return<span class="S0"> </span>props<span class="S10">[</span><span class="S7">'FilePath'</span><span class="S10">]</span><br />
+end<br />
+<br />
+<span class="S2">-- (Nicolas)</span><br />
+if<span class="S0"> </span>GTK<span class="S0"> </span>then<br />
+<span class="S0">&nbsp;&nbsp;</span>function<span class="S0"> </span>scite_DirectoryExists<span class="S10">(</span>path<span class="S10">)</span><br />
+<span class="S0">&nbsp;&nbsp;</span>return<span class="S0"> </span>os.execute<span class="S10">(</span><span class="S7">'test -d "'</span><span class="S10">..</span>path<span class="S10">..</span><span class="S7">'"'</span><span class="S10">)</span><span class="S0"> </span><span class="S10">==</span><span class="S0"> </span><span class="S4">0</span><br />
+<span class="S0">&nbsp;&nbsp;</span>end<br />
+else<br />
+<span class="S0">&nbsp;&nbsp;</span><span class="S2">-- what is the Win32 equivalent??</span><br />
+<span class="S0">&nbsp;&nbsp;</span>function<span class="S0"> </span>scite_DirectoryExists<span class="S10">(</span>path<span class="S10">)</span><br />
+<span class="S0">&nbsp;&nbsp;</span>return<span class="S0"> </span>true<br />
+<span class="S0">&nbsp;&nbsp;</span>end<br />
+end<br />
+<br />
+function<span class="S0"> </span>split<span class="S10">(</span>s<span class="S10">,</span>delim<span class="S10">)</span><br />
+<span class="S0">&nbsp;&nbsp;</span>res<span class="S0"> </span><span class="S10">=</span><span class="S0"> </span><span class="S10">{}</span><br />
+<span class="S0">&nbsp;&nbsp;</span>while<span class="S0"> </span>true<span class="S0"> </span>do<br />
+<span class="S0">&nbsp;&nbsp;</span>p<span class="S0"> </span><span class="S10">=</span><span class="S0"> </span>find<span class="S10">(</span>s<span class="S10">,</span>delim<span class="S10">)</span><br />
+<span class="S0">&nbsp;&nbsp;</span>if<span class="S0"> </span>not<span class="S0"> </span>p<span class="S0"> </span>then<br />
+<span class="S0">&nbsp;&nbsp;&nbsp;&nbsp;</span>append<span class="S10">(</span>res<span class="S10">,</span>s<span class="S10">)</span><br />
+<span class="S0">&nbsp;&nbsp;&nbsp;&nbsp;</span>return<span class="S0"> </span>res<br />
+<span class="S0">&nbsp;&nbsp;</span>end<br />
+<span class="S0">&nbsp;&nbsp;</span>append<span class="S10">(</span>res<span class="S10">,</span>sub<span class="S10">(</span>s<span class="S10">,</span><span class="S4">1</span><span class="S10">,</span>p<span class="S10">-</span><span class="S4">1</span><span class="S10">))</span><br />
+<span class="S0">&nbsp;&nbsp;</span>s<span class="S0"> </span><span class="S10">=</span><span class="S0"> </span>sub<span class="S10">(</span>s<span class="S10">,</span>p<span class="S10">+</span><span class="S4">1</span><span class="S10">)</span><br />
+<span class="S0">&nbsp;&nbsp;</span>end<br />
+end<br />
+<br />
+function<span class="S0"> </span>splitv<span class="S10">(</span>s<span class="S10">,</span>delim<span class="S10">)</span><br />
+<span class="S0">&nbsp;&nbsp;</span>return<span class="S0"> </span>unpack<span class="S10">(</span>split<span class="S10">(</span>s<span class="S10">,</span>delim<span class="S10">))</span><br />
+end<br />
+<br />
+local<span class="S0"> </span>idx<span class="S0"> </span><span class="S10">=</span><span class="S0"> </span><span class="S4">10</span><br />
+local<span class="S0"> </span>shortcuts_used<span class="S0"> </span><span class="S10">=</span><span class="S0"> </span><span class="S10">{}</span><br />
+local<span class="S0"> </span>alt_letter_map<span class="S0"> </span><span class="S10">=</span><span class="S0"> </span><span class="S10">{}</span><br />
+local<span class="S0"> </span>alt_letter_map_init<span class="S0"> </span><span class="S10">=</span><span class="S0"> </span>false<br />
+local<span class="S0"> </span>name_id_map<span class="S0"> </span><span class="S10">=</span><span class="S0"> </span><span class="S10">{}</span><br />
+<br />
+local<span class="S0"> </span>function<span class="S0"> </span>set_command<span class="S10">(</span>name<span class="S10">,</span>cmd<span class="S10">,</span>mode<span class="S10">)</span><br />
+<span class="S0">&nbsp;&nbsp;&nbsp;</span>local<span class="S0"> </span>_<span class="S10">,</span>_<span class="S10">,</span>pattern<span class="S10">,</span>md<span class="S0"> </span><span class="S10">=</span><span class="S0"> </span>find<span class="S10">(</span>mode<span class="S10">,</span><span class="S7">'(.+){(.+)}'</span><span class="S10">)</span><br />
+<span class="S0">&nbsp;&nbsp;&nbsp;</span>if<span class="S0"> </span>not<span class="S0"> </span>_<span class="S0"> </span>then<br />
+<span class="S0">&nbsp;&nbsp;&nbsp;&nbsp;</span>pattern<span class="S0"> </span><span class="S10">=</span><span class="S0"> </span>mode<br />
+<span class="S0">&nbsp;&nbsp;&nbsp;&nbsp;</span>md<span class="S0"> </span><span class="S10">=</span><span class="S0"> </span><span class="S7">'savebefore:no'</span><br />
+<span class="S0">&nbsp;&nbsp;&nbsp;</span>end<br />
+<span class="S0">&nbsp;&nbsp;&nbsp;</span>local<span class="S0"> </span>which<span class="S0"> </span><span class="S10">=</span><span class="S0"> </span><span class="S7">'.'</span><span class="S10">..</span>idx<span class="S10">..</span>pattern<br />
+<span class="S0">&nbsp;&nbsp;&nbsp;</span>props<span class="S10">[</span><span class="S7">'command.name'</span><span class="S10">..</span>which<span class="S10">]</span><span class="S0"> </span><span class="S10">=</span><span class="S0"> </span>name<br />
+<span class="S0">&nbsp;&nbsp;&nbsp;</span>props<span class="S10">[</span><span class="S7">'command'</span><span class="S10">..</span>which<span class="S10">]</span><span class="S0"> </span><span class="S10">=</span><span class="S0"> </span>cmd<br />
+<span class="S0">&nbsp;&nbsp;&nbsp;</span>props<span class="S10">[</span><span class="S7">'command.subsystem'</span><span class="S10">..</span>which<span class="S10">]</span><span class="S0"> </span><span class="S10">=</span><span class="S0"> </span><span class="S7">'3'</span><br />
+<span class="S0">&nbsp;&nbsp;&nbsp;</span>props<span class="S10">[</span><span class="S7">'command.mode'</span><span class="S10">..</span>which<span class="S10">]</span><span class="S0"> </span><span class="S10">=</span><span class="S0"> </span>md<br />
+<span class="S0">&nbsp;&nbsp;&nbsp;</span>name_id_map<span class="S10">[</span>name<span class="S10">]</span><span class="S0"> </span><span class="S10">=</span><span class="S0"> </span><span class="S4">1100</span><span class="S10">+</span>idx<br />
+<span class="S0">&nbsp;&nbsp;&nbsp;</span>return<span class="S0"> </span>which<br />
+end<br />
+<br />
+local<span class="S0"> </span>function<span class="S0"> </span>check_gtk_alt_shortcut<span class="S10">(</span>shortcut<span class="S10">,</span>name<span class="S10">)</span><br />
+<span class="S0">&nbsp;&nbsp;&nbsp;</span><span class="S2">-- Alt+&lt;letter&gt; shortcuts don't work for GTK, so handle them directly...</span><br />
+<span class="S0">&nbsp;&nbsp;&nbsp;</span>local<span class="S0"> </span>_<span class="S10">,</span>_<span class="S10">,</span>letter<span class="S0"> </span><span class="S10">=</span><span class="S0"> </span>shortcut<span class="S10">:</span>find<span class="S10">(</span><span class="S7">'^Alt%+([A-Z])$'</span><span class="S10">)</span><br />
+<span class="S0">&nbsp;&nbsp;&nbsp;</span>if<span class="S0"> </span>_<span class="S0"> </span>then<br />
+<span class="S0">&nbsp;&nbsp;&nbsp;&nbsp;</span>alt_letter_map<span class="S10">[</span>letter<span class="S10">:</span>lower<span class="S10">()]</span><span class="S0"> </span><span class="S10">=</span><span class="S0"> </span>name<br />
+<span class="S0">&nbsp;&nbsp;&nbsp;&nbsp;</span>if<span class="S0"> </span>not<span class="S0"> </span>alt_letter_map_init<span class="S0"> </span>then<br />
+<span class="S0">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span>alt_letter_map_init<span class="S0"> </span><span class="S10">=</span><span class="S0"> </span>true<br />
+<span class="S0">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span>scite_OnKey<span class="S10">(</span>function<span class="S10">(</span>key<span class="S10">,</span>shift<span class="S10">,</span>ctrl<span class="S10">,</span>alt<span class="S10">)</span><br />
+<span class="S0">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span>if<span class="S0"> </span>alt<span class="S0"> </span>and<span class="S0"> </span>key<span class="S0"> </span><span class="S10">&lt;</span><span class="S0"> </span><span class="S4">255</span><span class="S0"> </span>then<br />
+<span class="S0">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span>local<span class="S0"> </span>ch<span class="S0"> </span><span class="S10">=</span><span class="S0"> </span>string.char<span class="S10">(</span>key<span class="S10">)</span><br />
+<span class="S0">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span>if<span class="S0"> </span>alt_letter_map<span class="S10">[</span>ch<span class="S10">]</span><span class="S0"> </span>then<br />
+<span class="S0">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span>scite_MenuCommand<span class="S10">(</span>alt_letter_map<span class="S10">[</span>ch<span class="S10">])</span><br />
+<span class="S0">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span>end<br />
+<span class="S0">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span>end<br />
+<span class="S0">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span>end<span class="S10">)</span><br />
+<span class="S0">&nbsp;&nbsp;&nbsp;&nbsp;</span>end<br />
+<span class="S0">&nbsp;&nbsp;</span>end<br />
+end<br />
+<br />
+local<span class="S0"> </span>function<span class="S0"> </span>set_shortcut<span class="S10">(</span>shortcut<span class="S10">,</span>name<span class="S10">,</span>which<span class="S10">)</span><br />
+<span class="S0">&nbsp;&nbsp;</span>if<span class="S0"> </span>shortcut<span class="S0"> </span><span class="S10">==</span><span class="S0"> </span><span class="S7">'Context'</span><span class="S0"> </span>then<br />
+<span class="S0">&nbsp;&nbsp;&nbsp;&nbsp;</span>local<span class="S0"> </span>usr<span class="S0"> </span><span class="S10">=</span><span class="S0"> </span><span class="S7">'user.context.menu'</span><br />
+<span class="S0">&nbsp;&nbsp;&nbsp;&nbsp;</span>if<span class="S0"> </span>props<span class="S10">[</span>usr<span class="S10">]</span><span class="S0"> </span><span class="S10">==</span><span class="S0"> </span><span class="S7">''</span><span class="S0"> </span>then<span class="S0"> </span><span class="S2">-- force a separator</span><br />
+<span class="S0">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span>props<span class="S10">[</span>usr<span class="S10">]</span><span class="S0"> </span><span class="S10">=</span><span class="S0"> </span><span class="S7">'|'</span><br />
+<span class="S0">&nbsp;&nbsp;&nbsp;&nbsp;</span>end<br />
+<span class="S0">&nbsp;&nbsp;&nbsp;&nbsp;</span>props<span class="S10">[</span>usr<span class="S10">]</span><span class="S0"> </span><span class="S10">=</span><span class="S0"> </span>props<span class="S10">[</span>usr<span class="S10">]..</span><span class="S7">'|'</span><span class="S10">..</span>name<span class="S10">..</span><span class="S7">'|'</span><span class="S10">..(</span><span class="S4">1100</span><span class="S10">+</span>idx<span class="S10">)..</span><span class="S7">'|'</span><br />
+<span class="S0">&nbsp;&nbsp;</span>else<br />
+<span class="S0">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span>local<span class="S0"> </span>cmd<span class="S0"> </span><span class="S10">=</span><span class="S0"> </span>shortcuts_used<span class="S10">[</span>shortcut<span class="S10">]</span><br />
+<span class="S0">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span>if<span class="S0"> </span>cmd<span class="S0"> </span>then<br />
+<span class="S0">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span>print<span class="S10">(</span><span class="S7">'Error: shortcut already used in "'</span><span class="S10">..</span>cmd<span class="S10">..</span><span class="S7">'"'</span><span class="S10">)</span><br />
+<span class="S0">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span>else<br />
+<span class="S0">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span>shortcuts_used<span class="S10">[</span>shortcut<span class="S10">]</span><span class="S0"> </span><span class="S10">=</span><span class="S0"> </span>name<br />
+<span class="S0">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span>if<span class="S0"> </span>GTK<span class="S0"> </span>then<span class="S0"> </span>check_gtk_alt_shortcut<span class="S10">(</span>shortcut<span class="S10">,</span>name<span class="S10">)</span><span class="S0"> </span>end<br />
+<span class="S0">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span>props<span class="S10">[</span><span class="S7">'command.shortcut'</span><span class="S10">..</span>which<span class="S10">]</span><span class="S0"> </span><span class="S10">=</span><span class="S0"> </span>shortcut<br />
+<span class="S0">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span>end<br />
+<span class="S0">&nbsp;&nbsp;&nbsp;</span>end<br />
+end<br />
+<br />
+<span class="S2">-- allows you to bind given Lua functions to shortcut keys</span><br />
+<span class="S2">-- without messing around in the properties files!</span><br />
+<span class="S2">-- Either a string or a table of strings; the string format is either</span><br />
+<span class="S2">-- &nbsp;&nbsp;&nbsp;menu text|Lua command|shortcut</span><br />
+<span class="S2">-- or</span><br />
+<span class="S2">-- &nbsp;&nbsp;&nbsp;menu text|Lua command|mode|shortcut</span><br />
+<span class="S2">-- where 'mode' is the file extension which this command applies to,</span><br />
+<span class="S2">-- e.g. 'lua' or 'c', optionally followed by {mode specifier}, where 'mode specifier'</span><br />
+<span class="S2">-- is the same as documented under 'command.mode'</span><br />
+<span class="S2">-- 'shortcut' can be a usual SciTE key specifier, like 'Alt+R' or 'Ctrl+Shift+F1',</span><br />
+<span class="S2">-- _or_ it can be 'Context', meaning that the menu item should also be added</span><br />
+<span class="S2">-- to the right-hand click context menu.</span><br />
+function<span class="S0"> </span>scite_Command<span class="S10">(</span>tbl<span class="S10">)</span><br />
+<span class="S0">&nbsp;&nbsp;</span>if<span class="S0"> </span>type<span class="S10">(</span>tbl<span class="S10">)</span><span class="S0"> </span><span class="S10">==</span><span class="S0"> </span><span class="S7">'string'</span><span class="S0"> </span>then<br />
+<span class="S0">&nbsp;&nbsp;&nbsp;</span>tbl<span class="S0"> </span><span class="S10">=</span><span class="S0"> </span><span class="S10">{</span>tbl<span class="S10">}</span><br />
+<span class="S0">&nbsp;&nbsp;</span>end<br />
+<span class="S0">&nbsp;&nbsp;</span>for<span class="S0"> </span>i<span class="S10">,</span>v<span class="S0"> </span>in<span class="S0"> </span>pairs<span class="S10">(</span>tbl<span class="S10">)</span><span class="S0"> </span>do<br />
+<span class="S0">&nbsp;&nbsp;&nbsp;</span>local<span class="S0"> </span>name<span class="S10">,</span>cmd<span class="S10">,</span>mode<span class="S10">,</span>shortcut<span class="S0"> </span><span class="S10">=</span><span class="S0"> </span>splitv<span class="S10">(</span>v<span class="S10">,</span><span class="S7">'|'</span><span class="S10">)</span><br />
+<span class="S0">&nbsp;&nbsp;&nbsp;</span>if<span class="S0"> </span>not<span class="S0"> </span>shortcut<span class="S0"> </span>then<br />
+<span class="S0">&nbsp;&nbsp;&nbsp;&nbsp;</span>shortcut<span class="S0"> </span><span class="S10">=</span><span class="S0"> </span>mode<br />
+<span class="S0">&nbsp;&nbsp;&nbsp;&nbsp;</span>mode<span class="S0"> </span><span class="S10">=</span><span class="S0"> </span><span class="S7">'.*'</span><br />
+<span class="S0">&nbsp;&nbsp;&nbsp;</span>else<br />
+<span class="S0">&nbsp;&nbsp;&nbsp;&nbsp;</span>mode<span class="S0"> </span><span class="S10">=</span><span class="S0"> </span><span class="S7">'.'</span><span class="S10">..</span>mode<br />
+<span class="S0">&nbsp;&nbsp;&nbsp;</span>end<br />
+<span class="S0">&nbsp;&nbsp;&nbsp;</span><span class="S2">-- has this command been defined before?</span><br />
+<span class="S0">&nbsp;&nbsp;&nbsp;</span>local<span class="S0"> </span>old_idx<span class="S0"> </span><span class="S10">=</span><span class="S0"> </span><span class="S4">0</span><br />
+<span class="S0">&nbsp;&nbsp;&nbsp;</span>for<span class="S0"> </span>ii<span class="S0"> </span><span class="S10">=</span><span class="S0"> </span><span class="S4">10</span><span class="S10">,</span>idx<span class="S0"> </span>do<br />
+<span class="S0">&nbsp;&nbsp;&nbsp;&nbsp;</span>if<span class="S0"> </span>props<span class="S10">[</span><span class="S7">'command.name.'</span><span class="S10">..</span>ii<span class="S10">..</span>mode<span class="S10">]</span><span class="S0"> </span><span class="S10">==</span><span class="S0"> </span>name<span class="S0"> </span>then<span class="S0"> </span>old_idx<span class="S0"> </span><span class="S10">=</span><span class="S0"> </span>ii<span class="S0"> </span>end<br />
+<span class="S0">&nbsp;&nbsp;&nbsp;</span>end<br />
+<span class="S0">&nbsp;&nbsp;&nbsp;</span>if<span class="S0"> </span>old_idx<span class="S0"> </span><span class="S10">==</span><span class="S0"> </span><span class="S4">0</span><span class="S0"> </span>then<br />
+<span class="S0">&nbsp;&nbsp;&nbsp;&nbsp;</span>local<span class="S0"> </span>which<span class="S0"> </span><span class="S10">=</span><span class="S0"> </span>set_command<span class="S10">(</span>name<span class="S10">,</span>cmd<span class="S10">,</span>mode<span class="S10">)</span><br />
+<span class="S0">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span>if<span class="S0"> </span>shortcut<span class="S0"> </span>then<br />
+<span class="S0">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span>set_shortcut<span class="S10">(</span>shortcut<span class="S10">,</span>name<span class="S10">,</span>which<span class="S10">)</span><br />
+<span class="S0">&nbsp;&nbsp;&nbsp;&nbsp;</span>end<br />
+<span class="S0">&nbsp;&nbsp;&nbsp;&nbsp;</span>idx<span class="S0"> </span><span class="S10">=</span><span class="S0"> </span>idx<span class="S0"> </span><span class="S10">+</span><span class="S0"> </span><span class="S4">1</span><br />
+<span class="S0">&nbsp;&nbsp;</span>end<br />
+<span class="S0">&nbsp;&nbsp;</span>end<br />
+end<br />
+<br />
+<span class="S2">-- use this to launch Lua Tool menu commands directly by name</span><br />
+<span class="S2">-- (commands are not guaranteed to work properly if you just call the Lua function)</span><br />
+function<span class="S0"> </span>scite_MenuCommand<span class="S10">(</span>cmd<span class="S10">)</span><br />
+<span class="S0">&nbsp;&nbsp;</span>if<span class="S0"> </span>type<span class="S10">(</span>cmd<span class="S10">)</span><span class="S0"> </span><span class="S10">==</span><span class="S0"> </span><span class="S7">'string'</span><span class="S0"> </span>then<br />
+<span class="S0">&nbsp;&nbsp;&nbsp;&nbsp;</span>cmd<span class="S0"> </span><span class="S10">=</span><span class="S0"> </span>name_id_map<span class="S10">[</span>cmd<span class="S10">]</span><br />
+<span class="S0">&nbsp;&nbsp;&nbsp;&nbsp;</span>if<span class="S0"> </span>not<span class="S0"> </span>cmd<span class="S0"> </span>then<span class="S0"> </span>return<span class="S0"> </span>end<br />
+<span class="S0">&nbsp;&nbsp;</span>end<br />
+<span class="S0">&nbsp;&nbsp;</span>scite.MenuCommand<span class="S10">(</span>cmd<span class="S10">)</span><br />
+end<br />
+<br />
+local<span class="S0"> </span>loaded<span class="S0"> </span><span class="S10">=</span><span class="S0"> </span><span class="S10">{}</span><br />
+local<span class="S0"> </span>current_filepath<br />
+<br />
+<span class="S2">-- this will quietly fail....</span><br />
+local<span class="S0"> </span>function<span class="S0"> </span>silent_dofile<span class="S10">(</span>f<span class="S10">)</span><br />
+<span class="S0">&nbsp;&nbsp;</span>if<span class="S0"> </span>scite_FileExists<span class="S10">(</span>f<span class="S10">)</span><span class="S0"> </span>then<br />
+<span class="S0">&nbsp;&nbsp;&nbsp;&nbsp;</span>if<span class="S0"> </span>not<span class="S0"> </span>loaded<span class="S10">[</span>f<span class="S10">]</span><span class="S0"> </span>then<br />
+<span class="S0">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span>dofile<span class="S10">(</span>f<span class="S10">)</span><br />
+<span class="S0">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span>loaded<span class="S10">[</span>f<span class="S10">]</span><span class="S0"> </span><span class="S10">=</span><span class="S0"> </span>true<br />
+<span class="S0">&nbsp;&nbsp;&nbsp;&nbsp;</span>end<br />
+<span class="S0">&nbsp;&nbsp;&nbsp;&nbsp;</span>return<span class="S0"> </span>true<br />
+<span class="S0">&nbsp;&nbsp;</span>end<br />
+<span class="S0">&nbsp;&nbsp;</span>return<span class="S0"> </span>false<br />
+end<br />
+<br />
+function<span class="S0"> </span>scite_dofile<span class="S10">(</span>f<span class="S10">)</span><br />
+<span class="S0">&nbsp;&nbsp;</span>f<span class="S0"> </span><span class="S10">=</span><span class="S0"> </span>extman_path<span class="S10">..</span><span class="S7">'/'</span><span class="S10">..</span>f<br />
+<span class="S0">&nbsp;&nbsp;</span>silent_dofile<span class="S10">(</span>f<span class="S10">)</span><br />
+end<br />
+<br />
+function<span class="S0"> </span>scite_require<span class="S10">(</span>f<span class="S10">)</span><br />
+<span class="S0">&nbsp;&nbsp;</span>local<span class="S0"> </span>path<span class="S0"> </span><span class="S10">=</span><span class="S0"> </span>lua_path<span class="S10">..</span>dirsep<span class="S10">..</span>f<br />
+<span class="S0">&nbsp;&nbsp;</span>if<span class="S0"> </span>not<span class="S0"> </span>silent_dofile<span class="S10">(</span>path<span class="S10">)</span><span class="S0"> </span>then<br />
+<span class="S0">&nbsp;&nbsp;&nbsp;&nbsp;</span>silent_dofile<span class="S10">(</span>current_filepath<span class="S10">..</span>dirsep<span class="S10">..</span>f<span class="S10">)</span><br />
+<span class="S0">&nbsp;&nbsp;</span>end<br />
+end<br />
+<br />
+if<span class="S0"> </span>not<span class="S0"> </span>GTK<span class="S0"> </span>then<br />
+<span class="S0">&nbsp;&nbsp;</span>scite_dofile<span class="S0"> </span><span class="S7">'scite_other.lua'</span><br />
+end<br />
+<br />
+if<span class="S0"> </span>not<span class="S0"> </span>scite_DirectoryExists<span class="S10">(</span>lua_path<span class="S10">)</span><span class="S0"> </span>then<br />
+<span class="S0">&nbsp;&nbsp;</span>print<span class="S10">(</span><span class="S7">'Error: directory '</span><span class="S10">..</span>lua_path<span class="S10">..</span><span class="S7">' not found'</span><span class="S10">)</span><br />
+<span class="S0">&nbsp;&nbsp;</span>return<br />
+end<br />
+<br />
+function<span class="S0"> </span>load_script_list<span class="S10">(</span>script_list<span class="S10">,</span>path<span class="S10">)</span><br />
+<span class="S0">&nbsp;&nbsp;</span>if<span class="S0"> </span>not<span class="S0"> </span>script_list<span class="S0"> </span>then<br />
+<span class="S0">&nbsp;&nbsp;&nbsp;&nbsp;</span>print<span class="S10">(</span><span class="S7">'Error: no files found in '</span><span class="S10">..</span>path<span class="S10">)</span><br />
+<span class="S0">&nbsp;&nbsp;</span>else<br />
+<span class="S0">&nbsp;&nbsp;&nbsp;&nbsp;</span>current_filepath<span class="S0"> </span><span class="S10">=</span><span class="S0"> </span>path<br />
+<span class="S0">&nbsp;&nbsp;&nbsp;&nbsp;</span>for<span class="S0"> </span>i<span class="S10">,</span>file<span class="S0"> </span>in<span class="S0"> </span>pairs<span class="S10">(</span>script_list<span class="S10">)</span><span class="S0"> </span>do<br />
+<span class="S0">&nbsp;&nbsp;&nbsp;&nbsp;</span>silent_dofile<span class="S10">(</span>file<span class="S10">)</span><br />
+<span class="S0">&nbsp;&nbsp;&nbsp;&nbsp;</span>end<br />
+<span class="S0">&nbsp;&nbsp;</span>end<br />
+end<br />
+<br />
+<span class="S2">-- Load all scripts in the lua_path (usually 'scite_lua'), including within any subdirectories</span><br />
+<span class="S2">-- that aren't 'examples' or begin with a '_'</span><br />
+<span class="S2">--~ local script_list = scite_Files(lua_path..dirsep..'*.lua')</span><br />
+<br />
+<span class="S2">--~ load_script_list(script_list,lua_path)</span><br />
+<br />
+<span class="S2">--~ local dirs = scite_Directories(lua_path,'^_')</span><br />
+<span class="S2">--~ for i,dir in ipairs(dirs) do</span><br />
+<span class="S2">--~ &nbsp;&nbsp;load_script_list(scite_Files(dir..dirsep..'*.lua'),dir)</span><br />
+<span class="S2">--~ end</span><br />
+<span class="S0">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><br />
+scite_dofile<span class="S10">(</span><span class="S7">'smartishpaste.lua'</span><span class="S10">)</span><br />
+scite_dofile<span class="S10">(</span><span class="S7">'SciTE_ExportBase.lua'</span><span class="S10">)</span><br />
+scite_dofile<span class="S10">(</span><span class="S7">'SciTE_ExporterHTML.lua'</span><span class="S10">)</span><br />
+scite_dofile<span class="S10">(</span><span class="S7">'SciTEHexEdit.lua'</span><span class="S10">)</span><br />
+scite_dofile<span class="S10">(</span><span class="S7">'sort.lua'</span><span class="S10">)</span><br />
+scite_dofile<span class="S10">(</span><span class="S7">'eliza.lua'</span><span class="S10">)</span><br />
+scite_dofile<span class="S10">(</span><span class="S7">'snippet.lua'</span><span class="S10">)</span><br />
+scite_dofile<span class="S10">(</span><span class="S7">'switch_headers.lua'</span><span class="S10">)</span><br />
+scite_dofile<span class="S10">(</span><span class="S7">'indent.lua'</span><span class="S10">)</span><br />
+scite_dofile<span class="S10">(</span><span class="S7">'SciTE_autocomplete.lua'</span><span class="S10">)</span><br />
+scite_dofile<span class="S10">(</span><span class="S7">'ext_select.lua'</span><span class="S10">)</span><br />
+<br />
+<span class="S2">--~ scite_dofile('SciTEEditing.lua')</span><br />
+<span class="S2">--~ scite_dofile('AutoComplete.lua')</span><br />
+<span class="S2">--~ scite_dofile('test.lua') fun</span><br />
+<br />
+function<span class="S0"> </span>scite_WordAtPos<span class="S10">(</span>pos<span class="S10">)</span><br />
+<span class="S0">&nbsp;&nbsp;</span>if<span class="S0"> </span>not<span class="S0"> </span>pos<span class="S0"> </span>then<span class="S0"> </span>pos<span class="S0"> </span><span class="S10">=</span><span class="S0"> </span>editor.CurrentPos<span class="S0"> </span>end<br />
+<span class="S0">&nbsp;&nbsp;</span>local<span class="S0"> </span>p2<span class="S0"> </span><span class="S10">=</span><span class="S0"> </span>editor<span class="S10">:</span>WordEndPosition<span class="S10">(</span>pos<span class="S10">,</span>true<span class="S10">)</span><br />
+<span class="S0">&nbsp;&nbsp;</span>local<span class="S0"> </span>p1<span class="S0"> </span><span class="S10">=</span><span class="S0"> </span>editor<span class="S10">:</span>WordStartPosition<span class="S10">(</span>pos<span class="S10">,</span>true<span class="S10">)</span><br />
+<span class="S0">&nbsp;&nbsp;</span>if<span class="S0"> </span>p2<span class="S0"> </span><span class="S10">&gt;</span><span class="S0"> </span>p1<span class="S0"> </span>then<br />
+<span class="S0">&nbsp;&nbsp;&nbsp;&nbsp;</span>return<span class="S0"> </span>editor<span class="S10">:</span>textrange<span class="S10">(</span>p1<span class="S10">,</span>p2<span class="S10">)</span><br />
+<span class="S0">&nbsp;&nbsp;</span>end<br />
+end<br />
+<br />
+function<span class="S0"> </span>scite_GetSelOrWord<span class="S10">()</span><br />
+<span class="S0">&nbsp;&nbsp;</span>local<span class="S0"> </span>s<span class="S0"> </span><span class="S10">=</span><span class="S0"> </span>editor<span class="S10">:</span>GetSelText<span class="S10">()</span><br />
+<span class="S0">&nbsp;&nbsp;</span>if<span class="S0"> </span>s<span class="S0"> </span><span class="S10">==</span><span class="S0"> </span><span class="S7">''</span><span class="S0"> </span>then<br />
+<span class="S0">&nbsp;&nbsp;&nbsp;&nbsp;</span>return<span class="S0"> </span>scite_WordAtPos<span class="S10">()</span><br />
+<span class="S0">&nbsp;&nbsp;</span>else<br />
+<span class="S0">&nbsp;&nbsp;&nbsp;&nbsp;</span>return<span class="S0"> </span>s<br />
+<span class="S0">&nbsp;&nbsp;</span>end<br />
+end<br />
+<br />
+function<span class="S0"> </span>OpenCmd<span class="S10">()</span><br />
+<span class="S0">&nbsp;&nbsp;</span>os.execute<span class="S10">(</span><span class="S6">"start /D"</span><span class="S10">..</span>props<span class="S10">[</span><span class="S7">'FileDir'</span><span class="S10">])</span><br />
+end<br />
+<br />
+function<span class="S0"> </span>OpenExplorer<span class="S10">()</span><br />
+<span class="S0">&nbsp;&nbsp;</span>os.execute<span class="S10">(</span><span class="S6">"explorer "</span><span class="S10">..</span>props<span class="S10">[</span><span class="S7">'FileDir'</span><span class="S10">])</span><br />
+end<br />
+<br />
+function<span class="S0"> </span>reload_script<span class="S10">()</span><br />
+<span class="S0">&nbsp;&nbsp;</span>current_file<span class="S0"> </span><span class="S10">=</span><span class="S0"> </span>scite_CurrentFile<span class="S10">()</span><br />
+<span class="S0">&nbsp; </span>local<span class="S0"> </span>prmpt<span class="S10">=</span>output<span class="S10">:</span>GetLine<span class="S10">(</span>output.LineCount<span class="S10">-</span><span class="S4">1</span><span class="S10">)</span><br />
+<span class="S0">&nbsp; </span>if<span class="S0"> </span>not<span class="S0"> </span>prmpt<span class="S0"> </span>then<span class="S0"> </span>prmpt<span class="S10">=</span><span class="S6">"x"</span><span class="S0"> </span>end<br />
+<span class="S0">&nbsp;&nbsp;</span>print<span class="S10">(</span><span class="S7">'\n+ Lua dofile ( '</span><span class="S10">..</span>current_file<span class="S10">..</span><span class="S6">" )"</span><span class="S10">)</span><br />
+<span class="S0">&nbsp;&nbsp;</span>if<span class="S0"> </span>string.find<span class="S10">(</span>prmpt<span class="S10">,</span><span class="S6">";"</span><span class="S10">)</span><span class="S0"> </span>then<span class="S0"> </span>trace<span class="S10">(</span>prmpt<span class="S10">)</span><br />
+<span class="S0">&nbsp;&nbsp;</span>else<br />
+<span class="S0">&nbsp; &nbsp; </span>tracePrompt<span class="S10">()</span><br />
+<span class="S0">&nbsp; </span>end<br />
+<span class="S0">&nbsp; </span>loaded<span class="S10">[</span>current_file<span class="S10">]</span><span class="S0"> </span><span class="S10">=</span><span class="S0"> </span>false<br />
+<span class="S0">&nbsp;&nbsp;</span>silent_dofile<span class="S10">(</span>current_file<span class="S10">)</span><br />
+end<br />
+<br />
+function<span class="S0"> </span>tracePrompt<span class="S10">()</span><br />
+<span class="S0">&nbsp;&nbsp;</span>local<span class="S0"> </span>pu<span class="S10">=</span>props<span class="S10">[</span><span class="S7">'FileDir'</span><span class="S10">]</span><br />
+<span class="S0">&nbsp; </span>trace<span class="S10">(</span><span class="S0"> </span>pu<span class="S10">..</span><span class="S6">"; "</span><span class="S0"> </span><span class="S10">)</span><br />
+end<br />
+<br />
+<span class="S2">--~ require"remdebug.engine"</span><br />
+<span class="S2">--~ remdebug.engine.start()</span><br />
+<br />
+<span class="S2">--~ scite_dofile 'scriptlexer.lua'</span><br />
+<span class="S0"></span></span>
+</body>
+</html>

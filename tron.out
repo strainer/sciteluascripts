@@ -1,0 +1,5 @@
+tr,x%%  xswitch
+tr,s%%  xshift+50
+tr,v%%  xcombine
+tr,bg|rg|rb
+tr,agr|abg|arb|arg|agb|abr

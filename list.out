@@ -1,0 +1,27 @@
+
+li,^(ps|rrp)      find ps or rrp
+li,^(ps|rrp) ~foo     replace ps or rrp with foo
+
+li,. ~'%1',~¬¬          quotes each character
+li,^(r|a|t) ~'%1',~¬¬       quotes characters r,a or t
+
+- li, list, Li, List,  // eg. li,word w space   li,term w spaces~
+  'list' all lines in the current file containing 'term w spaces' 
+	 ends with ~ (tilde) to ignore word boundary.
+	 list, command can find and replace, in multiple files, uses tildes for options
+	 Examples,
+	 li,this term~  -Lists 'this term' in current file)
+	 li,~3<space>          -Just prints last three recent scoped files)
+	 li,~~3<space>         -Scopes three filepaths found upscreen in slide)
+	 li,~3 this term~  -Lists 'this term' in last three recent files)
+	 li,~~4 this term  -Lists 'this term' (with word boundaries), 
+	 									 in last 4 files named upscreen in the slide.
+	 li,t term ~repl t    -Replaces 't term' with 'repl t',
+	                       no tild on end, so word boundaries apply.
+	 Li,~3 tx term ~repl ty~  -Same as prev, done to 3 recent files, tild
+	 												  at end sets no word boundaries. Cased.
+   Li,~3 tx term ~repl ty~¬  -Same as prev, extra '¬' sets search
+	                           as basic lua pattern. eg. a=[%s]*b
+	 li,%d+ ~'%1'=true¬¬		 -Two ¬ set search and replace as lua gsub									 
+													 argument
+	 li,. ~'%1',~¬¬          quotes each character

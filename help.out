@@ -1,0 +1,130 @@
+ 123456781 123456782 123456783 123456784 123456785 123456786 123456787 123456788 123456789 123456780
+            
+>`SciTE`~`Slide`~ ~ helpe knowtes.
+-	A custom win32 SciTE with an enhanced command port.   
+
+  Use Ctrl+. to switch between `editor port` and the `sliding port`. 
+  Type shell commands on the bottom line of the slide.
+  Commands run in a static win32 environmet. If no path is present, commands run 
+	 in the current buffer's (file's) directory.
+  Hit enter on the bottom line to insert the current buffer's path or toggle previous.
+  Do CD with:'cd..'  '..' '....' '....\backdir'  
+	           '.\childdir' 'childdir\' 
+						 '..\..\anotherdir\acommandtorun(.exe)' '..\win32\make etc'
+  Hit enter on lines upscreen which contain a file path to open the file in editor 
+	 or "start" an executable. Filepaths with line numbers are usually opened at line.
+  Hit enter on a directory in dir listing to cd to it and list it, also works in wide 
+	 listing format.
+  It is recommended to have a commandline file location program like "search everything" or "locate32" in the system path for supreme file accessibility. 
+  Some interactive windows commands need 'start'ed  eg. start netstat -a
+ 
+> Standard Shortcuts
+  Ctrl+Shft+Entr - word in api file autocomplete
+  Ctrl+Shft+I    - open the api file 
+  Ctrl+B         - expand abbreviation (open abbrev file from Options menu and add to it)
+	Shift+Alt      - When held while selecting causes box selection (very useful)
+	F3             - Find dialogue
+	Ctrl+Back      - Deletes to end of previous line (joins line)
+	$(propname)    - echo any property in a commandline, eg. type $(SessionPath)
+	
+> Installation
+	SciTE Slide should run without installation and should not interfere with other SciTEs.
+	It does not use an application data folder. The name of the standard SciTE config files; Global and User properties can be shortened to Glob.props and User.props.
+	Common preferences such as base font, background lightness (tron:) setting, keyboard shortcuts etc. are curated in User.props. Altering less common settings may regretfuly not be straightforward due to modifications being disordered and mixed up.
+	Toolbar and Keyboard Macro recording dll are removed, but may be replaceable.
+
+> Entered quick shorthands
+     d = dir/w                s = lua:wsummary (prints summary of edit activity)
+  api: = open apifile      abr: = open abrreviations  
+  usr: = open user.props   glo: = open glob.props
+
+
+> Extra Keyboard Shortcuts	
+	Ctrl+C        - Copy. If no selection previous selection or paste is restored.
+  Ctrl+#        - Toggle position with the first pressed 
+									postion, or the last editted position.
+  Ctrl+,        - Repeat and cycle nearby words, 
+	                most useful for 'orgle=orgle+useful..  w/Shift cycles backward
+  Ctrl+Enter  	- Do Autocomplete / caseCorrect / prepend path to filename
+  Shift+Enter  	- Push line down and go to new line at indent 
+  Ctrl+Shift+L  - Delete Line/s (standard cut line/s is Ctrl+L) 
+  Ctrl+V        - Paste lines to indent, copies preselection if multiline 
+	                standard paste is quite transparent, Ctrl+Shift+V for standard 
+  Ctrl+Shift+I  - Re-indent selected lines or whole buffer
+  Ctrl+I        - Word/s Selection ; repeat to increase words.
+  Ctrl+K        - Line Selection incremental; inner line, full line, square ends, 
+	                bunch|blocks, comments above, below 
+  Ctrl+\        - Set a Bookmark or jump to the next if already set. 
+									With shift is same but unsets.
+	Ctrl+U        - Toggle a fold. With shift Toggles all folds
+  Ctrl+m        - Copy the line or selection to the other port. For cherry picking etc.
+  Ctrl++ Ctrl+- / Ctrl+home Ctrl+PgUp -- buffer tab activate/move (for laptop kbd) 
+  Ctrl+F or G    - Find down or up current word/sel 
+  Ctrl+Shift+F/G - Find down or up cur/sel word in the other port
+  Ctrl+J        - shortcut for wrep:[current word or sel] (lists) 
+  Ctrl+Shift+J  - shortcut for spot:[current word or sel] (lists in all files)
+  Ctrl+' Ctrl+/ - Scroll the other port, add Shift for pageup/down 
+  Ctrl+up/down  - Scroll up/down without moving caret or selection 
+	                (for peeking without a scroll wheel)  
+  Ctrl+Shift+D  - Basic spellcheck (hunspell), lists problem words seen in buffer.
+  Alt+D         - Lists spelling suggestions for the word under caret. 
+  Ctrl+.        - Switch focus. Goes to bottom of slide.
+  Ctrl+Alt+.    - Stop a running process 
+  Ctrl+`        - Switch buffer with a scite selection list
+
+> Slide commands:
+- fo, focus, // eg. fo,3  fo,buff.txt  fo,bu  fo,bu*  fo,b*xt  
+  (switch to buffer, number or part of name. Also empty fo, prints paths of all buffers)
+- su, //(summary - as focus but also unopened files)
+- sumv, //eg summv,c:/olddirectory/,c:/newdirectory/
+  (move recursively locations within filewatch)
+- un, re,  (undo/redo in editor) 
+- cl,4 close,bname  /  op, open,fname  (close/open buffers/files)
+- al, saveall, , ss, savesession, , ls, loadsession,
+- sv,save file  svo,save output  svc,save clipboard
+- de,15 deep, do,5 down, ke,8 keep,  (control down/up height of slide, as lines)
+- tr, tron,  // a remarkable colour/luminosity filter which can invert the display gradually.
+  -eg tr, -flips all,  tr,32  -sets to normal,  
+	    tr,29 -less than normal, -32 is 100% flipped     
+	    Useful ranges are between -35 to -20 , 15 to 40,  32 is passthrough )
+	    Also tr,s50  sets brightness shift, s40 is dark, s60 is bright
+			These values can tweak or greatly alter theme appearance
+			Startup values can be set in props (xshift, xcontrast)
+- lua, //eg lua,3*2/4 , lua,=3*2/4 , lua,print(3*2/4) , lua,groke="snork" my=groke:find("ork") print(my)
+  (runs lua statements and prints return value if prefixed with '=' or unexplicated.Useful for calculations and checks)
+- sap,fname ( append the editors selection to the given file fname )
+- %%fn %%fp  //eg. git add %%fn , somefilter.exe %%fp
+  (preprocessed aliases for the current buffers file name , or full path and name) 
+- >[enter]  eg >  .>   >>>>   >4  .>4
+  (the > symbol recalls previous commands .> does same but keeps current pathprompt. >>> or >3 goes back 3 etc.)   
+- # (hash symbol at the start or end of an entered line blocks running and prints a hash on newline for quick notewriting in the slide)
+
+- sp, spot, Sp, Spot,  // eg. sp,termnospaces [*.ext] sp,"term spaces" [*.php~]   
+  -'spot' all lines which contain regex 'term' 
+	 in _all_text_files_ in the slidepath [optional mask]
+	Uses findstr regex eg. sp,\<wordb\> ,or sp,"with space" *.txt )
+	sp, or Sp, for case in/Sensitivity.
+- li, list, Li, List,  // eg. li,word w space   li,term w spaces~
+  'list' all lines in the current file containing 'term w spaces' 
+	 ends with ~ (tilde) to ignore word boundary.
+	 list, command can find and replace, in multiple files, uses tildes for options
+	 Examples,
+	 li,this term~  -Lists 'this term' in current file)
+	 li,~3          -Just prints last three recent files paths)
+	 li,~~3         -Just prints three filepaths found upscreen in slide)
+	 li,~3 this term~  -Lists 'this term' in last three recent files)
+	 li,~~4 this term  -Lists 'this term' (with word boundaries), 
+	 									 in last 4 files named upscreen in the slide.
+	 li,t term ~repl t    -Replaces 't term' with 'repl t',
+	                       no tild on end, so word boundaries apply.
+	 Li,~3 tx term ~repl ty~  -Same as prev, done to 3 recent files, tild
+	 												  at end sets no word boundaries. Cased.
+   Li,~3 tx term ~repl ty~¬  -Same as prev, extra '¬' sets search
+	                           as basic lua pattern. eg. a=[%s]*b
+	 li,%d+ ~'%1'=true¬¬		 -Two ¬ set search and replace as lua gsub									 
+													 argument
+	 li,. ~'%1',~¬¬          quotes each character
+   li,(,)(%s+) ~%2,~¬¬     move commas to after spaces    
+   li,ix ~ox';,iy ~oy      ';, separates sequential li's
+   li,.*:.*function ~ ¬¬   -replaces all patterm with ' ' del not poss.
+              
